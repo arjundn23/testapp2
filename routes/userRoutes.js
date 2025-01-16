@@ -14,6 +14,7 @@ import {
   deactivateUser,
   forgetPassword,
   resetPassword,
+  searchUsers,
 } from "../controller/userController.js";
 import { protect, admin } from "../middleware/authMiddleware.js";
 
@@ -21,6 +22,7 @@ const router = express.Router();
 
 router.route("/").get(getUsers);
 router.route("/token-profile").put(updateTokenUserProfile);
+router.get("/search", protect, searchUsers);
 router.post("/logout", logoutUser);
 router.post("/auth", authUser);
 router.post("/forget-password", forgetPassword);

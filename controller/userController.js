@@ -1,8 +1,8 @@
 import User from "../models/userModel.js";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
-import nodemailer from "nodemailer";
 import crypto from 'crypto';
+import emailService from "../services/emailService.js";
 
 const authUser = async (req, res) => {
   const { email, password, rememberMe } = req.body;
@@ -61,30 +61,36 @@ const getUserProfile = async (req, res) => {
 };
 
 const updateUserProfile = async (req, res) => {
-  const { name, email, password, profilePic } = req.body;
+  try {
+    const { name, email, password, profilePic } = req.body;
 
-  const user = await User.findOne({ email });
+    const user = await User.findOne({ email });
 
-  if (user) {
-    user.username = name || user.username;
+    if (user) {
+      user.username = name || user.username;
 
-    if (password) {
-      user.password = await bcrypt.hash(password, 10);
+      if (password) {
+        // Let the model's pre-save middleware handle password hashing
+        user.password = password;
+      }
+
+      user.profilePicture = profilePic;
+
+      const updatedUser = await user.save();
+
+      res.json({
+        _id: updatedUser._id,
+        name: updatedUser.username,
+        email: updatedUser.email,
+        isAdmin: updatedUser.isAdmin,
+        profilePicture: updatedUser.profilePicture,
+      });
+    } else {
+      res.status(404).json({ message: "User not found" });
     }
-
-    user.profilePicture = profilePic;
-
-    const updatedUser = await user.save();
-
-    res.json({
-      _id: updatedUser._id,
-      name: updatedUser.username,
-      email: updatedUser.email,
-      isAdmin: updatedUser.isAdmin,
-      profilePicture: updatedUser.profilePicture,
-    });
-  } else {
-    res.status(404).json({ message: "User not found" });
+  } catch (error) {
+    console.error('Error updating user profile:', error);
+    res.status(500).json({ message: "Error updating user profile" });
   }
 };
 
@@ -97,7 +103,7 @@ const updateTokenUserProfile = async (req, res) => {
     user.username = name || user.username;
 
     if (password) {
-      user.password = await bcrypt.hash(password, 10);
+      user.password = password;
     }
 
     const updatedUser = await user.save();
@@ -213,7 +219,7 @@ const registerUserAndGenerateLink = async (req, res) => {
         <p>Resource Portal Team</p>
       `;
 
-    sendMail(user.email, subject, html);
+    await emailService.sendMail(user.email, subject, html);
 
     res.status(201).json({
       message: "User registered successfully",
@@ -250,14 +256,13 @@ const forgetPassword = async (req, res) => {
     const html = `
         <h2>Hello ${user.username},</h2>
         <p>You requested a password reset for your Resource Portal account.</p>
-        <p>Please click the link below to reset your password:</p>
-        <a href="${resetUrl}" target="_blank">Reset Password</a>
-        <p>This link will expire in 24 hours.</p>
+        <p>Please click the following link to reset your password:</p>
+        <a href="${resetUrl}">${resetUrl}</a>
         <p>If you didn't request this, please ignore this email.</p>
         <p>Best regards,<br/>Resource Portal Team</p>
       `;
 
-    sendMail(email, subject, html);
+    await emailService.sendMail(user.email, subject, html);
     res.json({ message: "Password reset email sent" });
   } catch (error) {
     console.error("Error in forget password:", error);
@@ -291,31 +296,44 @@ const resetPassword = async (req, res) => {
   }
 };
 
-const sendMail = (email, subject, html) => {
-  const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,        // e.g., 'mail.yourdomain.com'
-    port: process.env.SMTP_PORT,        // typically 465 (SSL) or 587 (TLS)
-    secure: true,                       // true for 465, false for other ports
-    auth: {
-      user: process.env.EMAIL,          // your webmail address
-      pass: process.env.EMAIL_PASSWORD, // your webmail password
-    },
-  });
+const sendPasswordResetEmail = async (user, resetToken) => {
+  const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+  const subject = "Password Reset Request";
+  const html = `
+    <h1>You have requested a password reset</h1>
+    <p>Please click the following link to reset your password:</p>
+    <a href="${resetUrl}">${resetUrl}</a>
+    <p>If you did not request this, please ignore this email.</p>
+  `;
 
-  const mailOptions = {
-    from: `Resource Portal <${process.env.EMAIL}>`,
-    to: email,
-    subject: subject,
-    html: html,
-  };
+  await emailService.sendMail(user.email, subject, html);
+};
 
-  transporter.sendMail(mailOptions, (error, info) => {
-    if (error) {
-      console.error("Error sending email:", error);
-    } else {
-      console.log("Email sent successfully:", info.response);
+// Search users by email
+const searchUsers = async (req, res) => {
+  try {
+    const { query } = req.query;
+    if (!query || query.trim().length === 0) {
+      return res.json([]);
     }
-  });
+
+    const users = await User.find({
+      $or: [
+        { email: { $regex: query, $options: 'i' } },
+        { username: { $regex: query, $options: 'i' } }
+      ]
+    })
+    .select('username email profilePicture')
+    .limit(5);
+
+    res.json(users);
+  } catch (error) {
+    console.error('Error searching users:', error);
+    res.status(500).json({ 
+      message: 'Error searching users',
+      error: error.message 
+    });
+  }
 };
 
 export {
@@ -333,4 +351,5 @@ export {
   deactivateUser,
   forgetPassword,
   resetPassword,
+  searchUsers,
 };
