@@ -1,5 +1,9 @@
+import dotenv from 'dotenv';
+import msalService from './msalService.js';
 import fetch from 'node-fetch';
 import FormData from 'form-data';
+
+dotenv.config();
 
 class SharePointService {
   constructor() {
@@ -9,8 +13,32 @@ class SharePointService {
     };
   }
 
-  async getSiteAndDriveInfo(accessToken) {
+  async ensureValidToken() {
     try {
+      const token = await msalService.getAccessToken();
+      const tokenData = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+      
+      // Check if token is expired or about to expire (within 5 minutes)
+      const expirationTime = tokenData.exp * 1000; // Convert to milliseconds
+      const currentTime = Date.now();
+      const fiveMinutes = 5 * 60 * 1000;
+
+      if (currentTime + fiveMinutes >= expirationTime) {
+        // Token is expired or about to expire, get a new one
+        return await msalService.getAccessToken(true); // Force refresh with skipCache
+      }
+      
+      return token;
+    } catch (error) {
+      console.error('Error ensuring valid token:', error);
+      // Always get a fresh token if there's an error
+      return await msalService.getAccessToken(true);
+    }
+  }
+
+  async getSiteAndDriveInfo() {
+    try {
+      const accessToken = await this.ensureValidToken();
       // Get SharePoint site ID
       const siteResponse = await fetch(
         `https://graph.microsoft.com/v1.0/sites/${this.config.siteId}:/sites/ResourcePortal`,
@@ -64,8 +92,9 @@ class SharePointService {
     }
   }
 
-  async createUploadSession(siteId, driveId, fileName, accessToken) {
+  async createUploadSession(siteId, driveId, fileName) {
     try {
+      const accessToken = await this.ensureValidToken();
       const response = await fetch(
         `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/root:/${fileName}:/createUploadSession`,
         {
@@ -122,8 +151,9 @@ class SharePointService {
     }
   }
 
-  async uploadFile(siteId, driveId, file, accessToken, onProgress) {
+  async uploadFile(siteId, driveId, file, _, onProgress = null) {
     try {
+      const accessToken = await this.ensureValidToken();
       if (!file || !file.buffer) {
         throw new Error('Invalid file data');
       }
@@ -224,6 +254,100 @@ class SharePointService {
       if (uploadedBytes === fileSize) {
         return await chunkResponse.json();
       }
+    }
+  }
+
+  async createSharingLink(siteId, driveId, itemId, expirationTime = '7') {
+    try {
+      const accessToken = await this.ensureValidToken();
+      
+      // Get the download URL directly
+      const response = await fetch(
+        `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/items/${itemId}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Accept': 'application/json'
+          }
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Error getting download URL:', errorData);
+        throw new Error(errorData.message || 'Failed to get download URL');
+      }
+
+      const data = await response.json();
+      const downloadUrl = data['@microsoft.graph.downloadUrl'];
+
+      // Calculate expiration time
+      const expiresAt = new Date(Date.now() + parseInt(expirationTime) * 24 * 60 * 60 * 1000);
+      
+      return {
+        shareId: data.id,
+        shareUrl: downloadUrl,
+        expiresAt: expiresAt.toISOString()
+      };
+    } catch (error) {
+      console.error('Error in createSharingLink:', error);
+      throw error;
+    }
+  }
+
+  async createFileShareLink(fileId, expirationDays = '7') {
+    try {
+      const { siteId, driveId } = await this.getSiteAndDriveInfo();
+      return await this.createSharingLink(siteId, driveId, fileId, expirationDays);
+    } catch (error) {
+      console.error('Error creating file share link:', error);
+      throw error;
+    }
+  }
+
+  async getDownloadUrl(siteId, driveId, itemId) {
+    try {
+      const accessToken = await this.ensureValidToken();
+      const response = await fetch(
+        `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/items/${itemId}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Accept': 'application/json'
+          }
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Error getting download URL:', errorData);
+        throw new Error(errorData.message || 'Failed to get download URL');
+      }
+
+      const data = await response.json();
+      return data['@microsoft.graph.downloadUrl'];
+    } catch (error) {
+      console.error('Error in getDownloadUrl:', error);
+      throw error;
+    }
+  }
+
+  async getFileUrls(fileId, thumbnailId = null) {
+    try {
+      const { siteId, driveId } = await this.getSiteAndDriveInfo();
+      
+      const [fileUrl, thumbnailUrl] = await Promise.all([
+        this.getDownloadUrl(siteId, driveId, fileId),
+        thumbnailId ? this.getDownloadUrl(siteId, driveId, thumbnailId) : Promise.resolve(null)
+      ]);
+
+      return {
+        fileUrl,
+        thumbnailUrl
+      };
+    } catch (error) {
+      console.error('Error getting file URLs:', error);
+      throw error;
     }
   }
 }

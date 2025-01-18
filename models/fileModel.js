@@ -12,7 +12,6 @@ const fileSchema = mongoose.Schema(
     },
     description: {
       type: String,
-      required: false,
     },
     fileTypes: [{
       type: String,
@@ -23,17 +22,12 @@ const fileSchema = mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Category'
     }],
-    thumbnailUrl: {
-      type: String,
-      required: false,
-    },
-    fileUrl: {
+    sharePointFileId: {
       type: String,
       required: true,
     },
-    downloadUrl: {
+    sharePointThumbnailId: {
       type: String,
-      required: false,
     },
     mimeType: {
       type: String,
@@ -43,24 +37,15 @@ const fileSchema = mongoose.Schema(
       type: Number,
       required: true,
     },
-    uploadedBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: false,
-    },
     user: {
       type: mongoose.Schema.Types.ObjectId,
       required: true,
-      ref: 'User',
-    },
-    sharePointFileId: {
-      type: String,
-      required: true,
+      ref: 'User'
     },
     sharedWith: [{
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
-    }],
+    }]
   },
   {
     timestamps: true,

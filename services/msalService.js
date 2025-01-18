@@ -13,28 +13,30 @@ const msalConfig = {
 
 const msalClient = new ConfidentialClientApplication(msalConfig);
 
-// Application (client) level permissions for SharePoint/OneDrive access
 const scopes = [
   'https://graph.microsoft.com/.default'
 ];
 
-export const getAccessToken = async () => {
-  try {
-    const result = await msalClient.acquireTokenByClientCredential({
-      scopes: scopes
-    });
-    
-    if (!result?.accessToken) {
-      throw new Error('No access token returned');
+class MSALService {
+  async getAccessToken(forceRefresh = false) {
+    try {
+      const result = await msalClient.acquireTokenByClientCredential({
+        scopes: scopes,
+        skipCache: forceRefresh // Skip cache if force refresh is requested
+      });
+      
+      if (!result?.accessToken) {
+        throw new Error('No access token returned');
+      }
+      
+      return result.accessToken;
+    } catch (error) {
+      console.error('Error acquiring token:', error);
+      throw new Error(`Failed to acquire access token: ${error.message}`);
     }
-    
-    return result.accessToken;
-  } catch (error) {
-    console.error('Error acquiring token:', error);
-    throw new Error(`Failed to acquire access token: ${error.message}`);
   }
-};
+}
 
-export default {
-  getAccessToken
-};
+const msalService = new MSALService();
+
+export default msalService;

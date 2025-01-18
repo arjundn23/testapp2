@@ -18,16 +18,6 @@ const upload = multer({
   }
 });
 
-const validateFileType = (fileType, allowedTypes) => {
-  if (!allowedTypes || allowedTypes === '*') return true;
-  const mimeTypes = {
-    'documents': ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
-    'images': ['image/jpeg', 'image/png', 'image/gif'],
-    'videos': ['video/mp4', 'video/quicktime', 'video/x-msvideo']
-  };
-  return mimeTypes[fileType]?.includes(allowedTypes);
-};
-
 // Middleware for file upload
 export const fileUploadMiddleware = upload.fields([
   { name: 'file', maxCount: 1 },
@@ -44,6 +34,17 @@ export const uploadFile = async (req, res) => {
       return res.status(400).json({ message: 'No file provided' });
     }
 
+    // Generate unique filenames
+    const timestamp = Date.now();
+    const mainFileExt = mainFile.originalname.split('.').pop();
+    const uniqueMainFileName = `m${timestamp}_${mainFile.originalname.replace(/\s+/g, '_')}`;
+    
+    let uniqueThumbnailName = null;
+    if (thumbnail) {
+      const thumbnailExt = thumbnail.originalname.split('.').pop();
+      uniqueThumbnailName = `t${timestamp}_${mainFile.originalname.replace(/\s+/g, '_')}`;
+    }
+
     // Set up SSE for progress updates
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -57,14 +58,14 @@ export const uploadFile = async (req, res) => {
     };
 
     // Get site and drive information
-    const { siteId, driveId } = await sharePointService.getSiteAndDriveInfo(await msalService.getAccessToken());
+    const { siteId, driveId } = await sharePointService.getSiteAndDriveInfo();
 
     // Upload main file with progress updates
     const fileResponse = await sharePointService.uploadFile(
       siteId,
       driveId,
-      mainFile,
-      await msalService.getAccessToken(),
+      { ...mainFile, originalname: uniqueMainFileName },
+      null,
       onProgress
     );
 
@@ -74,8 +75,7 @@ export const uploadFile = async (req, res) => {
       thumbnailResponse = await sharePointService.uploadFile(
         siteId,
         driveId,
-        thumbnail,
-        await msalService.getAccessToken()
+        { ...thumbnail, originalname: uniqueThumbnailName }
       );
     }
 
@@ -95,17 +95,18 @@ export const uploadFile = async (req, res) => {
       description: req.body.description || '',
       fileTypes: fileTypes,
       categories: categories,
-      thumbnailUrl: thumbnailResponse ? thumbnailResponse.webUrl : null,
-      fileUrl: fileResponse.webUrl,
-      downloadUrl: fileResponse['@microsoft.graph.downloadUrl'] || '',
+      sharePointFileId: fileResponse.id,
+      sharePointThumbnailId: thumbnailResponse?.id || null,
       mimeType: mainFile.mimetype,
       size: mainFile.size,
-      sharePointFileId: fileResponse.id,
-      uploadedBy: req.body.userId, // Get user ID from form data
-      user: req.user._id // Add user from auth middleware
+      uploadedBy: req.body.userId,
+      user: req.user._id
     };
 
     const fileRecord = await File.create(fileData);
+
+    // Get fresh URLs for the response
+    const urls = await sharePointService.getFileUrls(fileResponse.id, thumbnailResponse?.id);
 
     // Send final success response
     res.write(`data: ${JSON.stringify({ 
@@ -114,7 +115,11 @@ export const uploadFile = async (req, res) => {
       fileId: fileResponse.id,
       fileName: fileResponse.name,
       thumbnailId: thumbnailResponse?.id,
-      record: fileRecord
+      record: {
+        ...fileRecord.toObject(),
+        publicDownloadUrl: urls.fileUrl,
+        publicThumbnailDownloadUrl: urls.thumbnailUrl
+      }
     })}\n\n`);
     
     res.end();
@@ -131,12 +136,51 @@ export const uploadFile = async (req, res) => {
 // Get recent files
 export const getRecentFiles = async (req, res) => {
   try {
-    const files = await File.find()
+    let query = {};
+    
+    // If not admin, only show own and shared files
+    if (!req.user.isAdmin) {
+      query = {
+        $or: [
+          { user: req.user._id },
+          { sharedWith: req.user._id }
+        ]
+      };
+    }
+
+    const files = await File.find(query)
       .sort({ createdAt: -1 })
       .limit(10)
-      .populate('categories', 'name');
+      .populate('categories', 'name')
+      .populate('user', 'username email')
+      .populate('sharedWith', 'username email')
+      .lean();
 
-    res.json(files);
+    // Get URLs for all files in parallel
+    const filesWithUrls = await Promise.all(
+      files.map(async (file) => {
+        try {
+          const urls = await sharePointService.getFileUrls(
+            file.sharePointFileId,
+            file.sharePointThumbnailId
+          );
+          return {
+            ...file,
+            publicDownloadUrl: urls.fileUrl,
+            publicThumbnailDownloadUrl: urls.thumbnailUrl
+          };
+        } catch (error) {
+          console.error(`Error getting URLs for file ${file._id}:`, error);
+          return {
+            ...file,
+            publicDownloadUrl: '',
+            publicThumbnailDownloadUrl: ''
+          };
+        }
+      })
+    );
+
+    res.json(filesWithUrls);
   } catch (error) {
     console.error('Error getting recent files:', error);
     res.status(500).json({ message: error.message });
@@ -147,22 +191,64 @@ export const getRecentFiles = async (req, res) => {
 export const getFilesByType = async (req, res) => {
   try {
     const { fileType } = req.params;
-    let query = {};
+    
+    // Handle undefined or invalid file type
+    if (!fileType) {
+      return res.status(400).json({ message: 'File type is required' });
+    }
 
-    // Handle special cases for Sell It and Operate It Collateral
-    if (fileType === 'Sell It Collateral') {
-      query = { fileTypes: 'documents' };
-    } else if (fileType === 'Operate It Collateral') {
-      query = { fileTypes: 'documents' };
-    } else {
-      query = { fileTypes: fileType.toLowerCase() };
+    // Use $in operator to match any of the fileTypes array elements
+    let query = { 
+      fileTypes: { 
+        $in: [fileType.toLowerCase()]
+      } 
+    };
+
+    // If not admin, only show own and shared files
+    if (!req.user.isAdmin) {
+      query = {
+        fileTypes: { 
+          $in: [fileType.toLowerCase()]
+        },
+        $or: [
+          { user: req.user._id },
+          { sharedWith: req.user._id }
+        ]
+      };
     }
 
     const files = await File.find(query)
       .sort({ createdAt: -1 })
-      .populate('categories', 'name');
+      .populate('categories', 'name')
+      .populate('user', 'username email')
+      .populate('sharedWith', 'username email')
+      .lean();
 
-    res.json(files);
+    // Get URLs for all files in parallel
+    const filesWithUrls = await Promise.all(
+      files.map(async (file) => {
+        try {
+          const urls = await sharePointService.getFileUrls(
+            file.sharePointFileId,
+            file.sharePointThumbnailId
+          );
+          return {
+            ...file,
+            publicDownloadUrl: urls.fileUrl,
+            publicThumbnailDownloadUrl: urls.thumbnailUrl
+          };
+        } catch (error) {
+          console.error(`Error getting URLs for file ${file._id}:`, error);
+          return {
+            ...file,
+            publicDownloadUrl: '',
+            publicThumbnailDownloadUrl: ''
+          };
+        }
+      })
+    );
+
+    res.json(filesWithUrls);
   } catch (error) {
     console.error('Error getting files by type:', error);
     res.status(500).json({ message: error.message });
@@ -180,12 +266,52 @@ export const getFilesByCategory = async (req, res) => {
       return res.status(404).json({ message: 'Category not found' });
     }
 
-    // Then find all files in that category
-    const files = await File.find({ categories: category._id })
-      .sort({ createdAt: -1 })
-      .populate('categories', 'name');
+    let query = { categories: category._id };
 
-    res.json(files);
+    // If not admin, only show own and shared files
+    if (!req.user.isAdmin) {
+      query = {
+        categories: category._id,
+        $or: [
+          { user: req.user._id },
+          { sharedWith: req.user._id }
+        ]
+      };
+    }
+
+    // Then find all files in that category
+    const files = await File.find(query)
+      .sort({ createdAt: -1 })
+      .populate('categories', 'name')
+      .populate('user', 'username email')
+      .populate('sharedWith', 'username email')
+      .lean();
+
+    // Get URLs for all files in parallel
+    const filesWithUrls = await Promise.all(
+      files.map(async (file) => {
+        try {
+          const urls = await sharePointService.getFileUrls(
+            file.sharePointFileId,
+            file.sharePointThumbnailId
+          );
+          return {
+            ...file,
+            publicDownloadUrl: urls.fileUrl,
+            publicThumbnailDownloadUrl: urls.thumbnailUrl
+          };
+        } catch (error) {
+          console.error(`Error getting URLs for file ${file._id}:`, error);
+          return {
+            ...file,
+            publicDownloadUrl: '',
+            publicThumbnailDownloadUrl: ''
+          };
+        }
+      })
+    );
+
+    res.json(filesWithUrls);
   } catch (error) {
     console.error('Error getting files by category:', error);
     res.status(500).json({ message: error.message });
@@ -195,26 +321,83 @@ export const getFilesByCategory = async (req, res) => {
 // Get file by ID
 export const getFileById = async (req, res) => {
   try {
+    // Check if user is authenticated
+    if (!req.user) {
+      res.status(401);
+      throw new Error('Not authorized, no token');
+    }
+
     const file = await File.findById(req.params.id)
+      .lean()
       .populate('categories')
+      .populate('user', 'username email profilePicture')
       .populate('sharedWith', 'username email profilePicture');
 
-    if (file) {
-      res.json(file);
-    } else {
+    if (!file) {
       res.status(404);
       throw new Error('File not found');
     }
+
+    // Check access permissions
+    const userId = req.user._id;
+    const isAdmin = req.user.isAdmin;
+
+    // If user is admin, allow access regardless of ownership
+    if (!isAdmin) {
+      // Only check ownership and sharing if not admin
+      const isOwner = file.user && file.user._id && file.user._id.toString() === userId.toString();
+      const isSharedWith = file.sharedWith && file.sharedWith.some(user => user._id.toString() === userId.toString());
+
+      if (!isOwner && !isSharedWith) {
+        res.status(403);
+        throw new Error('You do not have permission to access this file');
+      }
+    }
+
+    // Get fresh URLs
+    const urls = await sharePointService.getFileUrls(
+      file.sharePointFileId,
+      file.sharePointThumbnailId
+    );
+
+    // Add URLs to the response
+    file.publicDownloadUrl = urls.fileUrl;
+    file.publicThumbnailDownloadUrl = urls.thumbnailUrl;
+
+    res.json(file);
   } catch (error) {
     console.error('Error getting file:', error);
-    res.status(500).json({ 
-      message: 'Error getting file',
-      error: error.message 
+    res.status(error.status || 500).json({ 
+      message: error.message || 'Error getting file'
     });
   }
 };
 
-// Share file with users
+// Get fresh download URLs for a file
+export const getFileUrls = async (req, res) => {
+  try {
+    const file = await File.findById(req.params.id);
+    if (!file) {
+      return res.status(404).json({ message: 'File not found' });
+    }
+
+    const urls = await sharePointService.getFileUrls(
+      file.sharePointFileId,
+      file.sharePointThumbnailId
+    );
+
+    res.json({
+      ...file.toObject(),
+      publicDownloadUrl: urls.fileUrl,
+      publicThumbnailDownloadUrl: urls.thumbnailUrl
+    });
+  } catch (error) {
+    console.error('Error getting file URLs:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Share file with user
 export const shareFile = async (req, res) => {
   try {
     const { id } = req.params;
@@ -227,19 +410,31 @@ export const shareFile = async (req, res) => {
       throw new Error('File not found');
     }
 
+    // Check if user has permission to share
+    if (!file.user.equals(req.user._id) && !req.user.isAdmin) {
+      res.status(403);
+      throw new Error('Not authorized to share this file');
+    }
+
     // Get users and add them to sharedWith
     const userPromises = emails.map(async (email) => {
       let user = await User.findOne({ email: email.toLowerCase() });
       
       if (user) {
+        // Get fresh URLs for the email
+        const urls = await sharePointService.getFileUrls(
+          file.sharePointFileId,
+          file.sharePointThumbnailId
+        );
+
         // Send notification email to existing user
         const subject = 'File Shared With You';
         const html = `
-          <p>Hello ${user.username},</p>
+          <h2>File Shared</h2>
           <p>A file has been shared with you on our platform.</p>
           <p>File Name: ${file.name}</p>
-          <p>View the file here: <a href="${file.fileUrl}">${file.name}</a></p>
-          <p>Download the file here: <a href="${file.downloadUrl}">Download ${file.name}</a></p>
+          <p>View the file here: <a href="${process.env.FRONTEND_URL}/viewfile/${file._id}">${process.env.FRONTEND_URL}/viewfile/${file._id}</a></p>
+          <p>Direct download: <a href="${urls.fileUrl}">Download ${file.name}</a></p>
         `;
         await emailService.sendMail(email, subject, html);
         return user._id;
@@ -289,34 +484,40 @@ export const shareFile = async (req, res) => {
   }
 };
 
-// Remove user access
+// Remove access
 export const removeAccess = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { userId } = req.body;
-
-    // Use findOneAndUpdate to avoid validation issues
-    const file = await File.findOneAndUpdate(
-      { _id: id },
-      { $pull: { sharedWith: userId } },
-      { 
-        new: true, // Return updated document
-        runValidators: false // Disable validation
-      }
-    ).populate('sharedWith', 'username email profilePicture');
+    const file = await File.findById(req.params.id);
 
     if (!file) {
-      res.status(404);
-      throw new Error('File not found');
+      return res.status(404).json({ message: 'File not found' });
     }
 
-    res.json(file);
+    // Check if user has permission to remove access
+    if (!file.user.equals(req.user._id) && !req.user.isAdmin) {
+      return res.status(403).json({ message: 'Not authorized to remove access' });
+    }
+
+    const { userId } = req.body;
+    file.sharedWith = file.sharedWith.filter(id => id.toString() !== userId);
+    await file.save();
+
+    // Fetch updated file with populated fields
+    const updatedFile = await File.findById(file._id)
+      .populate({
+        path: 'user',
+        select: 'username email profilePicture'
+      })
+      .populate({
+        path: 'sharedWith',
+        select: 'username email profilePicture'
+      })
+      .populate('categories');
+
+    res.json(updatedFile);
   } catch (error) {
     console.error('Error removing access:', error);
-    res.status(500).json({ 
-      message: 'Error removing access',
-      error: error.message 
-    });
+    res.status(500).json({ message: error.message });
   }
 };
 
@@ -393,5 +594,34 @@ export const updateFile = async (req, res) => {
       message: 'Error updating file',
       error: error.message 
     });
+  }
+};
+
+// Generate sharing link
+export const generateSharingLink = async (req, res) => {
+  try {
+    const file = await File.findById(req.params.id);
+    if (!file) {
+      return res.status(404).json({ message: 'File not found' });
+    }
+
+    // Check if user has permission to share
+    if (!file.user.equals(req.user._id) && !req.user.isAdmin) {
+      return res.status(403).json({ message: 'Not authorized to share this file' });
+    }
+
+    const { expirationDays } = req.body;
+    const shareLink = await sharePointService.createFileShareLink(
+      file.sharePointFileId,
+      expirationDays
+    );
+
+    res.json({
+      shareUrl: shareLink.shareUrl,
+      expiresAt: shareLink.expiresAt
+    });
+  } catch (error) {
+    console.error('Error generating sharing link:', error);
+    res.status(500).json({ message: error.message });
   }
 };

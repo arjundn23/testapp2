@@ -6,7 +6,7 @@ const userSchema = mongoose.Schema(
     username: { type: String, required: true },
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
-    profilePicture: { type: String, default: '/default-avatar.png' },
+    profilePicture: { type: String, default: '/default-profile.png' },
     isAdmin: { type: Boolean, required: true, default: false },
     isActivated: { type: Boolean, required: true, default: true },
     resetPasswordToken: String,

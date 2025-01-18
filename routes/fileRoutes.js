@@ -5,31 +5,38 @@ import {
   getFilesByType,
   getFilesByCategory,
   getFileById,
+  getFileUrls,
   updateFile,
   deleteFile,
   shareFile,
   removeAccess,
+  generateSharingLink,
   fileUploadMiddleware
 } from '../controller/fileController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-// Public routes
+// Protected routes - all routes should require authentication
+router.use(protect);
+
+// File routes
 router.get('/recent', getRecentFiles);
 router.get('/type/:fileType', getFilesByType);
 router.get('/category/:categoryName', getFilesByCategory);
 
-// Protected routes
 router.route('/upload')
-  .post(protect, fileUploadMiddleware, uploadFile);
+  .post(fileUploadMiddleware, uploadFile);
 
+// Make sure protect middleware is applied to these routes
 router.route('/:id')
-  .get(protect, getFileById)
-  .put(protect, updateFile)
-  .delete(protect, deleteFile);
+  .get(protect, getFileById)  
+  .put(updateFile)
+  .delete(deleteFile);
 
-router.post('/:id/share', protect, shareFile);
-router.post('/:id/remove-access', protect, removeAccess);
+router.get('/:id/urls', getFileUrls);
+router.post('/:id/share', shareFile);
+router.post('/:id/share-link', generateSharingLink);
+router.post('/:id/remove-access', removeAccess);
 
 export default router;
