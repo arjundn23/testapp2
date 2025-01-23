@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import msalService from './msalService.js';
 import fetch from 'node-fetch';
 import FormData from 'form-data';
+import redisService from './redisService.js';
 
 dotenv.config();
 
@@ -334,6 +335,27 @@ class SharePointService {
 
   async getFileUrls(fileId, thumbnailId = null) {
     try {
+      // Check cache first
+      const cachedUrls = await redisService.getFileUrls(fileId);
+      
+      // If cached and not expired, return cached URLs
+      if (cachedUrls && !await redisService.needsRefresh(fileId)) {
+        return {
+          fileUrl: cachedUrls.fileUrl,
+          thumbnailUrl: cachedUrls.thumbnailUrl
+        };
+      }
+
+      // If URLs need refresh but are still valid, trigger background refresh
+      if (cachedUrls && await redisService.needsRefresh(fileId)) {
+        this.refreshUrlsInBackground(fileId, thumbnailId);
+        return {
+          fileUrl: cachedUrls.fileUrl,
+          thumbnailUrl: cachedUrls.thumbnailUrl
+        };
+      }
+
+      // Generate new URLs
       const { siteId, driveId } = await this.getSiteAndDriveInfo();
       
       const [fileUrl, thumbnailUrl] = await Promise.all([
@@ -341,13 +363,51 @@ class SharePointService {
         thumbnailId ? this.getDownloadUrl(siteId, driveId, thumbnailId) : Promise.resolve(null)
       ]);
 
+      // Store in cache
+      await redisService.storeFileUrls(fileId, {
+        fileUrl,
+        thumbnailUrl
+      });
+
       return {
         fileUrl,
         thumbnailUrl
       };
     } catch (error) {
       console.error('Error getting file URLs:', error);
+      
+      // If error occurs but we have cached URLs, return those
+      const cachedUrls = await redisService.getFileUrls(fileId);
+      if (cachedUrls) {
+        return {
+          fileUrl: cachedUrls.fileUrl,
+          thumbnailUrl: cachedUrls.thumbnailUrl
+        };
+      }
+      
       throw error;
+    }
+  }
+
+  async refreshUrlsInBackground(fileId, thumbnailId) {
+    try {
+      // Mark as refreshing to prevent multiple refreshes
+      const marked = await redisService.markUrlAsRefreshing(fileId);
+      if (!marked) return;
+
+      const { siteId, driveId } = await this.getSiteAndDriveInfo();
+      
+      const [fileUrl, thumbnailUrl] = await Promise.all([
+        this.getDownloadUrl(siteId, driveId, fileId),
+        thumbnailId ? this.getDownloadUrl(siteId, driveId, thumbnailId) : Promise.resolve(null)
+      ]);
+
+      await redisService.storeFileUrls(fileId, {
+        fileUrl,
+        thumbnailUrl
+      });
+    } catch (error) {
+      console.error('Error refreshing URLs in background:', error);
     }
   }
 }

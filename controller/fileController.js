@@ -42,20 +42,28 @@ export const uploadFile = async (req, res) => {
     let uniqueThumbnailName = null;
     if (thumbnail) {
       const thumbnailExt = thumbnail.originalname.split('.').pop();
-      uniqueThumbnailName = `t${timestamp}_${mainFile.originalname.replace(/\s+/g, '_')}`;
+      uniqueThumbnailName = `t${timestamp}_thumbnail.${thumbnailExt}`;
     }
 
-    // Set up SSE for progress updates
+    // Set basic headers
     res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive'
+      'Content-Type': 'application/json',
+      'Transfer-Encoding': 'chunked',
+      'X-Accel-Buffering': 'no'
     });
 
     // Progress callback function
-    const onProgress = (progress) => {
-      res.write(`data: ${JSON.stringify({ progress })}\n\n`);
+    const onProgress = async (progress) => {
+      try {
+        res.write(JSON.stringify({ progress }) + '\n');
+        await new Promise(resolve => setTimeout(resolve, 100)); // Add delay between updates
+      } catch (error) {
+        console.error('Error sending progress:', error);
+      }
     };
+
+    // Send initial progress
+    await onProgress(0);
 
     // Get site and drive information
     const { siteId, driveId } = await sharePointService.getSiteAndDriveInfo();
@@ -109,7 +117,8 @@ export const uploadFile = async (req, res) => {
     const urls = await sharePointService.getFileUrls(fileResponse.id, thumbnailResponse?.id);
 
     // Send final success response
-    res.write(`data: ${JSON.stringify({ 
+    res.write(JSON.stringify({ 
+      progress: 100,
       done: true,
       message: 'File uploaded successfully',
       fileId: fileResponse.id,
@@ -120,7 +129,7 @@ export const uploadFile = async (req, res) => {
         publicDownloadUrl: urls.fileUrl,
         publicThumbnailDownloadUrl: urls.thumbnailUrl
       }
-    })}\n\n`);
+    }) + '\n');
     
     res.end();
   } catch (error) {
@@ -136,9 +145,12 @@ export const uploadFile = async (req, res) => {
 // Get recent files
 export const getRecentFiles = async (req, res) => {
   try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    // Build query based on user role
     let query = {};
-    
-    // If not admin, only show own and shared files
     if (!req.user.isAdmin) {
       query = {
         $or: [
@@ -148,9 +160,15 @@ export const getRecentFiles = async (req, res) => {
       };
     }
 
+    // Get total count for pagination
+    const totalFiles = await File.countDocuments(query);
+    const totalPages = Math.ceil(totalFiles / limit);
+
+    // Get paginated files
     const files = await File.find(query)
       .sort({ createdAt: -1 })
-      .limit(10)
+      .skip(skip)
+      .limit(limit)
       .populate('categories', 'name')
       .populate('user', 'username email')
       .populate('sharedWith', 'username email')
@@ -180,7 +198,12 @@ export const getRecentFiles = async (req, res) => {
       })
     );
 
-    res.json(filesWithUrls);
+    res.json({
+      files: filesWithUrls,
+      currentPage: page,
+      totalPages,
+      totalFiles
+    });
   } catch (error) {
     console.error('Error getting recent files:', error);
     res.status(500).json({ message: error.message });
@@ -191,6 +214,9 @@ export const getRecentFiles = async (req, res) => {
 export const getFilesByType = async (req, res) => {
   try {
     const { fileType } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
     
     // Handle undefined or invalid file type
     if (!fileType) {
@@ -217,8 +243,15 @@ export const getFilesByType = async (req, res) => {
       };
     }
 
+    // Get total count for pagination
+    const totalFiles = await File.countDocuments(query);
+    const totalPages = Math.ceil(totalFiles / limit);
+
+    // Get paginated files
     const files = await File.find(query)
       .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
       .populate('categories', 'name')
       .populate('user', 'username email')
       .populate('sharedWith', 'username email')
@@ -248,7 +281,12 @@ export const getFilesByType = async (req, res) => {
       })
     );
 
-    res.json(filesWithUrls);
+    res.json({
+      files: filesWithUrls,
+      currentPage: page,
+      totalPages,
+      totalFiles
+    });
   } catch (error) {
     console.error('Error getting files by type:', error);
     res.status(500).json({ message: error.message });
@@ -258,20 +296,26 @@ export const getFilesByType = async (req, res) => {
 // Get files by category
 export const getFilesByCategory = async (req, res) => {
   try {
-    const { categoryName } = req.params;
-    
-    // First find the category by name
-    const category = await Category.findOne({ name: categoryName });
+    const { id } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid category ID' });
+    }
+
+    // Check if category exists
+    const category = await Category.findById(id);
     if (!category) {
       return res.status(404).json({ message: 'Category not found' });
     }
 
-    let query = { categories: category._id };
-
-    // If not admin, only show own and shared files
+    // Build query based on user role and category
+    let query = { categories: id };
     if (!req.user.isAdmin) {
       query = {
-        categories: category._id,
+        categories: id,
         $or: [
           { user: req.user._id },
           { sharedWith: req.user._id }
@@ -279,9 +323,15 @@ export const getFilesByCategory = async (req, res) => {
       };
     }
 
-    // Then find all files in that category
+    // Get total count for pagination
+    const totalFiles = await File.countDocuments(query);
+    const totalPages = Math.ceil(totalFiles / limit);
+
+    // Get paginated files
     const files = await File.find(query)
       .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
       .populate('categories', 'name')
       .populate('user', 'username email')
       .populate('sharedWith', 'username email')
@@ -311,7 +361,12 @@ export const getFilesByCategory = async (req, res) => {
       })
     );
 
-    res.json(filesWithUrls);
+    res.json({
+      files: filesWithUrls,
+      currentPage: page,
+      totalPages,
+      totalFiles
+    });
   } catch (error) {
     console.error('Error getting files by category:', error);
     res.status(500).json({ message: error.message });

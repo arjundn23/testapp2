@@ -23,7 +23,7 @@ router.use(protect);
 // File routes
 router.get('/recent', getRecentFiles);
 router.get('/type/:fileType', getFilesByType);
-router.get('/category/:categoryName', getFilesByCategory);
+router.get('/category/:id', getFilesByCategory);
 
 router.route('/upload')
   .post(fileUploadMiddleware, uploadFile);

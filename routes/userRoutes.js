@@ -20,7 +20,7 @@ import { protect, admin } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-router.route("/").get(getUsers);
+router.route("/").get(protect,admin,getUsers);
 router.route("/token-profile").put(updateTokenUserProfile);
 router.get("/search", protect, searchUsers);
 router.post("/logout", logoutUser);
@@ -34,7 +34,7 @@ router
 router.route("/deactivate/:id").put(protect,admin,deactivateUser);
 router
   .route("/:id")
-  .get(admin, getUserById)
+  .get(protect,admin,getUserById)
   .put(protect,admin,updateUser)
   .delete(protect,admin,deleteUser);
 router.post("/generate-link", protect, admin, registerUserAndGenerateLink);
