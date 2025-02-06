@@ -45,6 +45,14 @@ const fileSchema = mongoose.Schema(
     sharedWith: [{
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
+    }],
+    favourites: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    }],
+    downloads: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
     }]
   },
   {

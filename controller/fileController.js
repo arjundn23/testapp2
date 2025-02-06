@@ -142,6 +142,74 @@ export const uploadFile = async (req, res) => {
   }
 };
 
+// Get all files
+export const getAllFiles = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    // Build query based on user role
+    let query = {};
+    if (!req.user.isAdmin) {
+      query = {
+        $or: [
+          { user: req.user._id },
+          { sharedWith: req.user._id }
+        ]
+      };
+    }
+
+    // Get total count for pagination
+    const totalFiles = await File.countDocuments(query);
+    const totalPages = Math.ceil(totalFiles / limit);
+
+    // Get paginated files
+    const files = await File.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('categories', 'name')
+      .populate('user', 'username email')
+      .populate('sharedWith', 'username email')
+      .lean();
+
+    // Get URLs for all files in parallel
+    const filesWithUrls = await Promise.all(
+      files.map(async (file) => {
+        try {
+          const urls = await sharePointService.getFileUrls(
+            file.sharePointFileId,
+            file.sharePointThumbnailId
+          );
+          return {
+            ...file,
+            publicDownloadUrl: urls.fileUrl,
+            publicThumbnailDownloadUrl: urls.thumbnailUrl
+          };
+        } catch (error) {
+          console.error(`Error getting URLs for file ${file._id}:`, error);
+          return {
+            ...file,
+            publicDownloadUrl: '',
+            publicThumbnailDownloadUrl: ''
+          };
+        }
+      })
+    );
+
+    res.json({
+      files: filesWithUrls,
+      currentPage: page,
+      totalPages,
+      totalFiles
+    });
+  } catch (error) {
+    console.error('Error getting all files:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // Get recent files
 export const getRecentFiles = async (req, res) => {
   try {
@@ -206,6 +274,131 @@ export const getRecentFiles = async (req, res) => {
     });
   } catch (error) {
     console.error('Error getting recent files:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Get shared files
+export const getSharedFiles = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    // Build query based on sharedWith
+    let query = {
+      sharedWith: req.user._id,
+      // user: { $ne: req.user._id } // Exclude files owned by the user
+    };
+
+    // Get total count for pagination
+    const totalFiles = await File.countDocuments(query);
+    const totalPages = Math.ceil(totalFiles / limit);
+
+    // Get paginated files
+    const files = await File.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('categories', 'name')
+      .populate('user', 'username email')
+      .populate('sharedWith', 'username email')
+      .lean();
+
+    // Get URLs for all files in parallel
+    const filesWithUrls = await Promise.all(
+      files.map(async (file) => {
+        try {
+          const urls = await sharePointService.getFileUrls(
+            file.sharePointFileId,
+            file.sharePointThumbnailId
+          );
+          return {
+            ...file,
+            publicDownloadUrl: urls.fileUrl,
+            publicThumbnailDownloadUrl: urls.thumbnailUrl
+          };
+        } catch (error) {
+          console.error(`Error getting URLs for file ${file._id}:`, error);
+          return {
+            ...file,
+            publicDownloadUrl: '',
+            publicThumbnailDownloadUrl: ''
+          };
+        }
+      })
+    );
+
+    res.json({
+      files: filesWithUrls,
+      currentPage: page,
+      totalPages,
+      totalFiles
+    });
+  } catch (error) {
+    console.error('Error getting shared files:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Get downloaded files
+export const getDownloadedFiles = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    // Build query based on downloads
+    let query = {
+      downloads: req.query.userId,
+    };
+
+    // Get total count for pagination
+    const totalFiles = await File.countDocuments(query);
+    const totalPages = Math.ceil(totalFiles / limit);
+
+    // Get paginated files
+    const files = await File.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('categories', 'name')
+      .populate('user', 'username email')
+      .populate('downloads', 'username email')
+      .lean();
+
+    // Get URLs for all files in parallel
+    const filesWithUrls = await Promise.all(
+      files.map(async (file) => {
+        try {
+          const urls = await sharePointService.getFileUrls(
+            file.sharePointFileId,
+            file.sharePointThumbnailId
+          );
+          return {
+            ...file,
+            publicDownloadUrl: urls.fileUrl,
+            publicThumbnailDownloadUrl: urls.thumbnailUrl
+          };
+        } catch (error) {
+          console.error(`Error getting URLs for file ${file._id}:`, error);
+          return {
+            ...file,
+            publicDownloadUrl: '',
+            publicThumbnailDownloadUrl: ''
+          };
+        }
+      })
+    );
+
+    res.json({
+      files: filesWithUrls,
+      currentPage: page,
+      totalPages,
+      totalFiles
+    });
+  } catch (error) {
+    console.error('Error getting downloads files:', error);
     res.status(500).json({ message: error.message });
   }
 };
@@ -677,6 +870,124 @@ export const generateSharingLink = async (req, res) => {
     });
   } catch (error) {
     console.error('Error generating sharing link:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Get favorite files
+export const getFavoriteFiles = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    // Get files where user is in favourites array
+    const query = {
+      favourites: req.user._id
+    };
+
+    // Get total count for pagination
+    const totalFiles = await File.countDocuments(query);
+    const totalPages = Math.ceil(totalFiles / limit);
+
+    // Get paginated files
+    const files = await File.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('categories', 'name')
+      .populate('user', 'username email')
+      .populate('sharedWith', 'username email')
+      .lean();
+
+    // Get URLs for all files in parallel
+    const filesWithUrls = await Promise.all(
+      files.map(async (file) => {
+        try {
+          const urls = await sharePointService.getFileUrls(
+            file.sharePointFileId,
+            file.sharePointThumbnailId
+          );
+          return {
+            ...file,
+            publicDownloadUrl: urls.fileUrl,
+            publicThumbnailDownloadUrl: urls.thumbnailUrl
+          };
+        } catch (error) {
+          console.error(`Error getting URLs for file ${file._id}:`, error);
+          return {
+            ...file,
+            publicDownloadUrl: '',
+            publicThumbnailDownloadUrl: ''
+          };
+        }
+      })
+    );
+
+    res.json({
+      files: filesWithUrls,
+      currentPage: page,
+      totalPages,
+      totalFiles
+    });
+  } catch (error) {
+    console.error('Error getting favorite files:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Toggle favorite status
+export const toggleFavorite = async (req, res) => {
+  try {
+    const file = await File.findById(req.params.id);
+    
+    if (!file) {
+      return res.status(404).json({ message: 'File not found' });
+    }
+
+    const userIndex = file.favourites.indexOf(req.user._id);
+    
+    if (userIndex === -1) {
+      // Add to favourites
+      file.favourites.push(req.user._id);
+      await file.save();
+      res.json({ message: 'Added to favourites', isFavorite: true });
+    } else {
+      // Remove from favourites
+      file.favourites.pull(req.user._id);
+      await file.save();
+      res.json({ message: 'Removed from favourites', isFavorite: false });
+    }
+  } catch (error) {
+    console.error('Error toggling favorite:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Track file download
+export const trackDownload = async (req, res) => {
+  try {
+    const file = await File.findById(req.params.id);
+    
+    if (!file) {
+      return res.status(404).json({ message: 'File not found' });
+    }
+
+    // Check if user has already downloaded
+    const userIndex = file.downloads.indexOf(req.user._id);
+    
+    if (userIndex === -1) {
+      // Add user to downloads array if not already present
+      file.downloads.push(req.user._id);
+      await file.save();
+    }
+
+    res.json({ 
+      message: 'Download tracked successfully',
+      downloadCount: file.downloads.length 
+    });
+  } catch (error) {
+    console.error('Error tracking download:', error);
     res.status(500).json({ message: error.message });
   }
 };
