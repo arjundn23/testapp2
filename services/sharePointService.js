@@ -3,6 +3,7 @@ import msalService from './msalService.js';
 import fetch from 'node-fetch';
 import FormData from 'form-data';
 import redisService from './redisService.js';
+import fs from 'fs/promises';
 
 dotenv.config();
 
@@ -155,21 +156,39 @@ class SharePointService {
   async uploadFile(siteId, driveId, file, _, onProgress = null) {
     try {
       const accessToken = await this.ensureValidToken();
-      if (!file || !file.buffer) {
-        throw new Error('Invalid file data');
+      
+      // Read file buffer if file is on disk
+      let fileBuffer;
+      let fileSize;
+      
+      if (file.path) {
+        fileBuffer = await fs.readFile(file.path);
+        fileSize = file.size;
+      } else if (file.buffer) {
+        fileBuffer = file.buffer;
+        fileSize = file.size;
+      } else {
+        throw new Error('Invalid file data: Neither buffer nor path available');
       }
 
+      // Create a new file object with the buffer
+      const fileWithBuffer = {
+        ...file,
+        buffer: fileBuffer,
+        size: fileSize
+      };
+
       // For files smaller than 4MB, use simple upload
-      if (file.size < 4 * 1024 * 1024) {
+      if (fileSize < 4 * 1024 * 1024) {
         // Send initial progress
         onProgress && onProgress(0);
-        const result = await this.simpleUpload(siteId, driveId, file, accessToken);
+        const result = await this.simpleUpload(siteId, driveId, fileWithBuffer, accessToken);
         onProgress && onProgress(100);
         return result;
       }
 
       // For larger files, use large file upload session
-      return await this.largeFileUpload(siteId, driveId, file, accessToken, onProgress);
+      return await this.largeFileUpload(siteId, driveId, fileWithBuffer, accessToken, onProgress);
     } catch (error) {
       console.error('Error in uploadFile:', error);
       throw error;

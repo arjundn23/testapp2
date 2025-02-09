@@ -8,9 +8,22 @@ import mongoose from 'mongoose';
 import User from '../models/userModel.js'; 
 import emailService from '../services/emailService.js'; 
 import crypto from 'crypto'; 
+import { sendUploadProgress, sendUploadComplete, sendUploadError, storeUploadConnection, getWSS } from '../utils/websocket.js';
+import fs from 'fs/promises';
+import path from 'path';
+import uploadProcessingService from '../services/uploadProcessingService.js';
 
-// Configure multer for memory storage
-const storage = multer.memoryStorage();
+// Configure multer for disk storage
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, 'uploads/temp');
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + '-' + file.originalname.replace(/\s+/g, '_'));
+  }
+});
+
 const upload = multer({ 
   storage: storage,
   limits: {
@@ -26,6 +39,9 @@ export const fileUploadMiddleware = upload.fields([
 
 // Upload file
 export const uploadFile = async (req, res) => {
+  const uploadId = `upload_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  console.log('Starting upload with ID:', uploadId);
+  
   try {
     const mainFile = req.files['file']?.[0];
     const thumbnail = req.files['thumbnail']?.[0];
@@ -34,111 +50,87 @@ export const uploadFile = async (req, res) => {
       return res.status(400).json({ message: 'No file provided' });
     }
 
-    // Generate unique filenames
-    const timestamp = Date.now();
-    const mainFileExt = mainFile.originalname.split('.').pop();
-    const uniqueMainFileName = `m${timestamp}_${mainFile.originalname.replace(/\s+/g, '_')}`;
-    
-    let uniqueThumbnailName = null;
-    if (thumbnail) {
-      const thumbnailExt = thumbnail.originalname.split('.').pop();
-      uniqueThumbnailName = `t${timestamp}_thumbnail.${thumbnailExt}`;
-    }
-
-    // Set basic headers
-    res.writeHead(200, {
-      'Content-Type': 'application/json',
-      'Transfer-Encoding': 'chunked',
-      'X-Accel-Buffering': 'no'
-    });
-
-    // Progress callback function
-    const onProgress = async (progress) => {
-      try {
-        res.write(JSON.stringify({ progress }) + '\n');
-        await new Promise(resolve => setTimeout(resolve, 100)); // Add delay between updates
-      } catch (error) {
-        console.error('Error sending progress:', error);
-      }
-    };
-
-    // Send initial progress
-    await onProgress(0);
-
-    // Get site and drive information
-    const { siteId, driveId } = await sharePointService.getSiteAndDriveInfo();
-
-    // Upload main file with progress updates
-    const fileResponse = await sharePointService.uploadFile(
-      siteId,
-      driveId,
-      { ...mainFile, originalname: uniqueMainFileName },
-      null,
-      onProgress
-    );
-
-    let thumbnailResponse = null;
-    if (thumbnail) {
-      // Upload thumbnail if provided
-      thumbnailResponse = await sharePointService.uploadFile(
-        siteId,
-        driveId,
-        { ...thumbnail, originalname: uniqueThumbnailName }
-      );
-    }
-
-    // Parse file metadata
+    // Validate file types
     let fileTypes = [];
     let categories = [];
     try {
       fileTypes = JSON.parse(req.body.fileTypes || '[]');
       categories = JSON.parse(req.body.categories || '[]');
     } catch (error) {
-      console.error('Error parsing file metadata:', error);
+      return res.status(400).json({ message: 'Invalid file types or categories format' });
     }
 
-    const fileData = {
-      name: req.body.name || mainFile.originalname,
-      originalName: mainFile.originalname,
-      description: req.body.description || '',
-      fileTypes: fileTypes,
-      categories: categories,
-      sharePointFileId: fileResponse.id,
-      sharePointThumbnailId: thumbnailResponse?.id || null,
-      mimeType: mainFile.mimetype,
-      size: mainFile.size,
-      uploadedBy: req.body.userId,
-      user: req.user._id
+    if (fileTypes.length === 0) {
+      return res.status(400).json({ message: 'Please select at least one file type' });
+    }
+
+    if (categories.length === 0) {
+      return res.status(400).json({ message: 'Please select at least one category' });
+    }
+
+    // Get WebSocket connection from the WebSocket server
+    const wss = getWSS();
+    const ws = Array.from(wss.clients).find(client => 
+      client._socket.remoteAddress === req.socket.remoteAddress
+    );
+
+    if (ws) {
+      console.log('Found WebSocket connection for upload ID:', uploadId);
+      storeUploadConnection(uploadId, ws);
+    } else {
+      console.log('No WebSocket connection found for upload ID:', uploadId);
+      return res.status(400).json({ message: 'WebSocket connection required for upload' });
+    }
+
+    // Generate unique filenames
+    const timestamp = Date.now();
+    const uniqueMainFileName = `m${timestamp}_${mainFile.originalname.replace(/\s+/g, '_')}`;
+    
+    let uniqueThumbnailName = null;
+    if (thumbnail) {
+      uniqueThumbnailName = `t${timestamp}_thumbnail.${thumbnail.originalname.split('.').pop()}`;
+    }
+
+    // Prepare upload data
+    const uploadData = {
+      uploadId,
+      mainFile: { ...mainFile, originalname: uniqueMainFileName },
+      thumbnail: thumbnail ? { ...thumbnail, originalname: uniqueThumbnailName } : null,
+      userId: req.body.userId,
+      user: req.user._id,
+      fileTypes,
+      categories,
+      name: req.body.name,
+      description: req.body.description
     };
 
-    const fileRecord = await File.create(fileData);
+    // Start background processing
+    setImmediate(() => {
+      uploadProcessingService.processUpload(uploadData).catch(error => {
+        console.error('Error in background upload processing:', error);
+      });
+    });
 
-    // Get fresh URLs for the response
-    const urls = await sharePointService.getFileUrls(fileResponse.id, thumbnailResponse?.id);
+    // Return success response immediately
+    res.json({ 
+      message: 'Upload started successfully', 
+      uploadId 
+    });
 
-    // Send final success response
-    res.write(JSON.stringify({ 
-      progress: 100,
-      done: true,
-      message: 'File uploaded successfully',
-      fileId: fileResponse.id,
-      fileName: fileResponse.name,
-      thumbnailId: thumbnailResponse?.id,
-      record: {
-        ...fileRecord.toObject(),
-        publicDownloadUrl: urls.fileUrl,
-        publicThumbnailDownloadUrl: urls.thumbnailUrl
-      }
-    }) + '\n');
-    
-    res.end();
   } catch (error) {
-    console.error('Error in file upload:', error);
-    res.write(`data: ${JSON.stringify({ 
-      error: true,
-      message: error.message || 'Failed to upload file'
-    })}\n\n`);
-    res.end();
+    console.error('Error in upload initialization:', error);
+    // Clean up files in case of error during initialization
+    try {
+      if (req.files?.['file']?.[0]?.path) {
+        await fs.unlink(req.files['file'][0].path);
+      }
+      if (req.files?.['thumbnail']?.[0]?.path) {
+        await fs.unlink(req.files['thumbnail'][0].path);
+      }
+    } catch (cleanupError) {
+      console.error('Error cleaning up files:', cleanupError);
+    }
+    res.status(500).json({ error: error.message || 'Failed to initialize upload' });
   }
 };
 
