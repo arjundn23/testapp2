@@ -2,15 +2,14 @@ import express from 'express';
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
-import fs from 'fs/promises';
-import path from 'path';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 import connectDB from './config/db.js';
 import userRoutes from './routes/userRoutes.js';
 import fileRoutes from './routes/fileRoutes.js';
 import categoryRoutes from './routes/categoryRoutes.js';
 import authRoutes from './routes/authRoutes.js';
-import { initWebSocket } from './utils/websocket.js';
+import websocketService from './services/websocketService.js';
+import { createServer } from 'http';
 
 dotenv.config();
 
@@ -40,22 +39,16 @@ app.get('/', (req, res) => res.send('Server is ready'));
 app.use(notFound);
 app.use(errorHandler);
 
-// Ensure uploads/temp directory exists
-const ensureUploadsDir = async () => {
-  const tempDir = path.join(process.cwd(), 'uploads', 'temp');
-  try {
-    await fs.access(tempDir);
-  } catch {
-    await fs.mkdir(tempDir, { recursive: true });
-    console.log('Created uploads/temp directory');
-  }
-};
+const server = createServer(app);
 
-// Initialize WebSocket server and ensure directories exist
-const server = app.listen(port, async () => {
-  await ensureUploadsDir();
-  console.log(`Server running on port ${port}`);
+// Disable Nagle's algorithm to prevent buffering of small packets
+server.on('connection', (socket) => {
+  socket.setNoDelay(true);
 });
 
-// Initialize WebSocket server
-initWebSocket(server);
+// Initialize WebSocket
+websocketService.initialize(server);
+
+server.listen(port, () => {
+  console.log(`Server started on port ${port}`);
+});
