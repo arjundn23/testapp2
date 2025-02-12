@@ -967,6 +967,26 @@ export const toggleFavorite = async (req, res) => {
 };
 
 // Track file download
+// Test streaming endpoint
+export const testStreaming = async (req, res) => {
+  // Set headers for streaming
+  res.writeHead(200, {
+    'Content-Type': 'application/json',
+    'Transfer-Encoding': 'chunked',
+    'X-Accel-Buffering': 'no',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive'
+  });
+
+  // Send 10 progress updates
+  for(let i = 0; i <= 10; i++) {
+    res.write(JSON.stringify({ progress: i * 10 }) + '\n');
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+
+  res.end();
+};
+
 export const trackDownload = async (req, res) => {
   try {
     const file = await File.findById(req.params.id);

@@ -20,8 +20,14 @@ import {
   trackDownload
 } from '../controller/fileController.js';
 import { protect } from '../middleware/authMiddleware.js';
+import { testStreaming } from '../controller/fileController.js';
+
+// Test route for streaming
 
 const router = express.Router();
+
+// Test streaming route (unprotected for testing)
+router.get('/test-stream', testStreaming);
 
 // Protected routes - all routes should require authentication
 router.use(protect);
