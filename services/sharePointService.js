@@ -152,7 +152,7 @@ class SharePointService {
     }
   }
 
-  async uploadFile(siteId, driveId, file, _, onProgress = null) {
+  async uploadFile(siteId, driveId, file) {
     try {
       const accessToken = await this.ensureValidToken();
       if (!file || !file.buffer) {
@@ -161,15 +161,11 @@ class SharePointService {
 
       // For files smaller than 4MB, use simple upload
       if (file.size < 4 * 1024 * 1024) {
-        // Send initial progress
-        onProgress && onProgress(0);
-        const result = await this.simpleUpload(siteId, driveId, file, accessToken);
-        onProgress && onProgress(100);
-        return result;
+        return await this.simpleUpload(siteId, driveId, file, accessToken);
       }
 
       // For larger files, use large file upload session
-      return await this.largeFileUpload(siteId, driveId, file, accessToken, onProgress);
+      return await this.largeFileUpload(siteId, driveId, file, accessToken);
     } catch (error) {
       console.error('Error in uploadFile:', error);
       throw error;
@@ -196,7 +192,7 @@ class SharePointService {
     return await response.json();
   }
 
-  async largeFileUpload(siteId, driveId, file, accessToken, onProgress) {
+  async largeFileUpload(siteId, driveId, file, accessToken) {
     // Create upload session
     const sessionUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/root:/${file.originalname}:/createUploadSession`;
     
@@ -224,9 +220,6 @@ class SharePointService {
     const fileSize = fileBuffer.length;
     let uploadedBytes = 0;
 
-    // Send initial progress
-    onProgress && onProgress(0);
-
     while (uploadedBytes < fileSize) {
       const chunk = fileBuffer.slice(
         uploadedBytes,
@@ -248,8 +241,6 @@ class SharePointService {
       }
 
       uploadedBytes += chunk.length;
-      const progress = Math.round((uploadedBytes / fileSize) * 100);
-      onProgress && onProgress(progress);
 
       // Get the response for the last chunk
       if (uploadedBytes === fileSize) {

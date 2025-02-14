@@ -14,7 +14,7 @@ const storage = multer.memoryStorage();
 const upload = multer({ 
   storage: storage,
   limits: {
-    fileSize: 100 * 1024 * 1024 // 100MB limit
+    fileSize: 2048 * 1024 * 1024 // 2GB limit
   }
 });
 
@@ -45,27 +45,8 @@ export const uploadFile = async (req, res) => {
       uniqueThumbnailName = `t${timestamp}_thumbnail.${thumbnailExt}`;
     }
 
-    // Set headers to prevent buffering
-    res.writeHead(200, {
-      'Content-Type': 'application/json',
-      'Transfer-Encoding': 'chunked',
-      'X-Accel-Buffering': 'no',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive'
-    });
-
-    // Progress callback function
-    const onProgress = async (progress) => {
-      try {
-        res.write(JSON.stringify({ progress }) + '\n');
-        await new Promise(resolve => setTimeout(resolve, 500)); // Increased delay to prevent small packet buffering
-      } catch (error) {
-        console.error('Error sending progress:', error);
-      }
-    };
-
-    // Send initial progress
-    await onProgress(0);
+    // Simple response headers
+    res.setHeader('Content-Type', 'application/json');
 
     // Get site and drive information
     const { siteId, driveId } = await sharePointService.getSiteAndDriveInfo();
@@ -74,9 +55,7 @@ export const uploadFile = async (req, res) => {
     const fileResponse = await sharePointService.uploadFile(
       siteId,
       driveId,
-      { ...mainFile, originalname: uniqueMainFileName },
-      null,
-      onProgress
+      { ...mainFile, originalname: uniqueMainFileName }
     );
 
     let thumbnailResponse = null;
@@ -118,10 +97,8 @@ export const uploadFile = async (req, res) => {
     // Get fresh URLs for the response
     const urls = await sharePointService.getFileUrls(fileResponse.id, thumbnailResponse?.id);
 
-    // Send final success response
-    res.write(JSON.stringify({ 
-      progress: 100,
-      done: true,
+    // Send success response
+    res.json({ 
       message: 'File uploaded successfully',
       fileId: fileResponse.id,
       fileName: fileResponse.name,
@@ -131,16 +108,18 @@ export const uploadFile = async (req, res) => {
         publicDownloadUrl: urls.fileUrl,
         publicThumbnailDownloadUrl: urls.thumbnailUrl
       }
-    }) + '\n');
-    
-    res.end();
+    });
   } catch (error) {
     console.error('Error in file upload:', error);
-    res.write(`data: ${JSON.stringify({ 
+    // Log detailed error for debugging
+    if (error.response) {
+      console.error('SharePoint response:', error.response);
+    }
+    
+    res.status(500).json({ 
       error: true,
-      message: error.message || 'Failed to upload file'
-    })}\n\n`);
-    res.end();
+      message: error.message || 'Failed to upload file. Please try again.'
+    });
   }
 };
 
