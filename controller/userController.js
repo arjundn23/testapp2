@@ -167,6 +167,11 @@ const updateUser = async (req, res) => {
       user.username = req.body.username || user.username;
       user.email = req.body.email || user.email;
       user.isAdmin = req.body.role === 'admin';
+      
+      // Update profile picture if provided
+      if (req.body.profilePicture) {
+        user.profilePicture = req.body.profilePicture;
+      }
 
       const updatedUser = await user.save();
 
@@ -175,6 +180,7 @@ const updateUser = async (req, res) => {
         username: updatedUser.username,
         email: updatedUser.email,
         isAdmin: updatedUser.isAdmin,
+        profilePicture: updatedUser.profilePicture,
       });
     } else {
       res.status(404);

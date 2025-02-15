@@ -193,6 +193,8 @@ class SharePointService {
   }
 
   async largeFileUpload(siteId, driveId, file, accessToken) {
+    const maxRetries = 3;
+    const retryDelay = 5000; // 5 seconds
     // Create upload session
     const sessionUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/root:/${file.originalname}:/createUploadSession`;
     
@@ -215,7 +217,7 @@ class SharePointService {
     const { uploadUrl } = await sessionResponse.json();
 
     // Upload file in chunks
-    const maxChunkSize = 4 * 1024 * 1024; // 4MB chunks
+    const maxChunkSize = 10 * 1024 * 1024; // 10MB chunks
     const fileBuffer = file.buffer;
     const fileSize = fileBuffer.length;
     let uploadedBytes = 0;
@@ -226,14 +228,33 @@ class SharePointService {
         Math.min(uploadedBytes + maxChunkSize, fileSize)
       );
 
-      const chunkResponse = await fetch(uploadUrl, {
-        method: 'PUT',
-        headers: {
-          'Content-Length': chunk.length,
-          'Content-Range': `bytes ${uploadedBytes}-${uploadedBytes + chunk.length - 1}/${fileSize}`
-        },
-        body: chunk
-      });
+      let chunkResponse;
+      let retries = 0;
+      
+      while (retries < maxRetries) {
+        try {
+          chunkResponse = await fetch(uploadUrl, {
+            method: 'PUT',
+            headers: {
+              'Content-Length': chunk.length,
+              'Content-Range': `bytes ${uploadedBytes}-${uploadedBytes + chunk.length - 1}/${fileSize}`
+            },
+            body: chunk
+          });
+          
+          if (chunkResponse.ok) break;
+          
+          // If chunk upload failed but it's retriable
+          console.log(`Chunk upload failed, attempt ${retries + 1} of ${maxRetries}`);
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+          retries++;
+        } catch (error) {
+          console.error('Chunk upload error:', error);
+          if (retries >= maxRetries - 1) throw error;
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+          retries++;
+        }
+      }
 
       if (!chunkResponse.ok) {
         const error = await chunkResponse.json();

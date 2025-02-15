@@ -19,8 +19,11 @@ connectDB();
 
 const app = express();
 
-app.use(express.json({limit:'10mb'}));
-app.use(express.urlencoded({ extended: true, limit:'10mb' }));
+app.use(express.json({limit:'2048mb'}));
+app.use(express.urlencoded({ extended: true, limit:'2048mb' }));
+
+// Set timeout for large uploads
+app.timeout = 3600000; // 1 hour
 app.use(cookieParser());
 
 app.use(cors({

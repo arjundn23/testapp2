@@ -52,11 +52,13 @@ export const uploadFile = async (req, res) => {
     const { siteId, driveId } = await sharePointService.getSiteAndDriveInfo();
 
     // Upload main file with progress updates
+    console.log('Uploading main file to SharePoint...');
     const fileResponse = await sharePointService.uploadFile(
       siteId,
       driveId,
       { ...mainFile, originalname: uniqueMainFileName }
     );
+    console.log('Main file upload complete');
 
     let thumbnailResponse = null;
     if (thumbnail) {
