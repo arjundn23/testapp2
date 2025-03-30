@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import crypto from 'crypto';
 import emailService from "../services/emailService.js";
+import UserActivity from '../models/userActivityModel.js';
 
 const authUser = async (req, res) => {
   const { email, password, rememberMe } = req.body;
@@ -11,6 +12,19 @@ const authUser = async (req, res) => {
   if (user && !user.isActivated)
     return res.status(401).json({ message: "Account is deactivated" });
   if (user && (await user.matchPassword(password))) {
+    // Update user status
+    await User.findByIdAndUpdate(user._id, {
+      lastActiveAt: new Date(),
+      isOnline: true
+    });
+
+    // Track login activity
+    await UserActivity.create({
+      user: user._id,
+      activityType: 'login',
+      timestamp: new Date()
+    });
+
     const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
       expiresIn: rememberMe ? "30d" : "1d",
     });
@@ -34,6 +48,20 @@ const authUser = async (req, res) => {
 };
 
 const logoutUser = async (req, res) => {
+  if (req.user) {
+    // Update user status
+    await User.findByIdAndUpdate(req.user._id, {
+      isOnline: false
+    });
+
+    // Track logout activity
+    await UserActivity.create({
+      user: req.user._id,
+      activityType: 'logout',
+      timestamp: new Date()
+    });
+  }
+
   res.cookie("jwt", "", {
     httpOnly: true,
     secure: process.env.NODE_ENV !== "development",

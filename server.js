@@ -8,6 +8,7 @@ import userRoutes from './routes/userRoutes.js';
 import fileRoutes from './routes/fileRoutes.js';
 import categoryRoutes from './routes/categoryRoutes.js';
 import authRoutes from './routes/authRoutes.js';
+import dashboardRoutes from './routes/dashboardRoutes.js';
 import websocketService from './services/websocketService.js';
 import { createServer } from 'http';
 
@@ -35,6 +36,7 @@ app.use(cors({
 app.use('/api/users', userRoutes);
 app.use('/api/files', fileRoutes);
 app.use('/api/categories', categoryRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 app.use("/api/auth", authRoutes);
 
 app.get('/', (req, res) => res.send('Server is ready'));

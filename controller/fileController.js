@@ -8,6 +8,7 @@ import mongoose from 'mongoose';
 import User from '../models/userModel.js'; 
 import emailService from '../services/emailService.js'; 
 import crypto from 'crypto'; 
+import UserActivity from '../models/userActivityModel.js';
 
 // Configure multer for memory storage
 const storage = multer.memoryStorage();
@@ -948,6 +949,124 @@ export const toggleFavorite = async (req, res) => {
 };
 
 // Track file download
+export const trackDownload = async (req, res) => {
+  try {
+    const fileId = req.params.id;
+    const userId = req.user._id;
+
+    // Check if user has already downloaded this file
+    const file = await File.findById(fileId);
+    const hasDownloaded = file.downloadHistory.some(
+      download => download.userId.toString() === userId.toString()
+    );
+
+    // Only update download count if it's a new download
+    if (!hasDownloaded) {
+      await File.findByIdAndUpdate(fileId, {
+        $inc: { downloadCount: 1 },
+        $push: { 
+          downloadHistory: {
+            userId,
+            downloadedAt: new Date()
+          }
+        },
+        lastDownloadedAt: new Date()
+      });
+
+      // Create user activity record
+      await UserActivity.create({
+        user: userId,
+        activityType: 'download',
+        fileId,
+        timestamp: new Date()
+      });
+
+      // Update user's downloaded files
+      await User.findByIdAndUpdate(userId, {
+        $push: {
+          downloadedFiles: {
+            fileId,
+            downloadedAt: new Date()
+          }
+        }
+      });
+    }
+
+    res.status(200).json({ 
+      message: 'Download tracked successfully',
+      isNewDownload: !hasDownloaded 
+    });
+  } catch (error) {
+    console.error('Error tracking download:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Search files
+export const searchFiles = async (req, res) => {
+  try {
+    const searchTerm = req.query.searchTerm || '';
+    const limit = parseInt(req.query.limit) || 10;
+
+    let query = {};
+    if (!req.user.isAdmin) {
+      query = {
+        $or: [
+          { user: req.user._id },
+          { sharedWith: req.user._id }
+        ]
+      };
+    }
+
+    // Add search term to query
+    if (searchTerm) {
+      query = {
+        ...query,
+        $or: [
+          { name: { $regex: searchTerm, $options: 'i' } },
+          { description: { $regex: searchTerm, $options: 'i' } }
+        ]
+      };
+    }
+
+    const files = await File.find(query)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .populate('categories', 'name')
+      .populate('user', 'username email')
+      .lean();
+
+    // Get URLs for all files in parallel
+    const filesWithUrls = await Promise.all(
+      files.map(async (file) => {
+        try {
+          const urls = await sharePointService.getFileUrls(
+            file.sharePointFileId,
+            file.sharePointThumbnailId
+          );
+          return {
+            ...file,
+            publicDownloadUrl: urls.fileUrl,
+            publicThumbnailDownloadUrl: urls.thumbnailUrl
+          };
+        } catch (error) {
+          console.error(`Error getting URLs for file ${file._id}:`, error);
+          return {
+            ...file,
+            publicDownloadUrl: '',
+            publicThumbnailDownloadUrl: ''
+          };
+        }
+      })
+    );
+
+    res.json({ files: filesWithUrls });
+  } catch (error) {
+    console.error('Error searching files:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // Test streaming endpoint
 export const testStreaming = async (req, res) => {
   // Set headers for streaming
@@ -966,31 +1085,4 @@ export const testStreaming = async (req, res) => {
   }
 
   res.end();
-};
-
-export const trackDownload = async (req, res) => {
-  try {
-    const file = await File.findById(req.params.id);
-    
-    if (!file) {
-      return res.status(404).json({ message: 'File not found' });
-    }
-
-    // Check if user has already downloaded
-    const userIndex = file.downloads.indexOf(req.user._id);
-    
-    if (userIndex === -1) {
-      // Add user to downloads array if not already present
-      file.downloads.push(req.user._id);
-      await file.save();
-    }
-
-    res.json({ 
-      message: 'Download tracked successfully',
-      downloadCount: file.downloads.length 
-    });
-  } catch (error) {
-    console.error('Error tracking download:', error);
-    res.status(500).json({ message: error.message });
-  }
 };

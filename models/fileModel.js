@@ -15,8 +15,6 @@ const fileSchema = mongoose.Schema(
     },
     fileTypes: [{
       type: String,
-      enum: ['operate it collateral', 'images', 'videos', 'sell it collateral'],
-      required: true
     }],
     categories: [{
       type: mongoose.Schema.Types.ObjectId,
@@ -53,6 +51,24 @@ const fileSchema = mongoose.Schema(
     downloads: [{
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
+    }],
+    downloadCount: {
+      type: Number,
+      default: 0
+    },
+    lastDownloadedAt: {
+      type: Date
+    },
+    downloadHistory: [{
+      userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
+      },
+      downloadedAt: {
+        type: Date,
+        default: Date.now
+      }
     }]
   },
   {

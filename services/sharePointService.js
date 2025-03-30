@@ -422,6 +422,51 @@ class SharePointService {
       console.error('Error refreshing URLs in background:', error);
     }
   }
+
+  async getSpaceUsage() {
+    try {
+      const { siteId } = await this.getSiteAndDriveInfo();
+      const accessToken = await this.ensureValidToken();
+      
+      const response = await fetch(
+        `https://graph.microsoft.com/v1.0/sites/${siteId}/drive`,
+        {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Accept': 'application/json'
+          }
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Failed to get storage metrics');
+      }
+
+      const data = await response.json();
+      const used = Number(data.quota.used);
+      const total = Number(data.quota.total);
+      const percentage = total > 0 ? ((used / total) * 100).toFixed(2) : 0;
+      
+      return {
+        used: data.quota.used,
+        remaining: data.quota.remaining,
+        total: data.quota.total,
+        deleted: data.quota.deleted,
+        state: data.quota.state,
+        percentage: Number(percentage)
+      };
+    } catch (error) {
+      console.error('Error getting space usage:', error);
+      return {
+        used: 0,
+        remaining: 0,
+        total: 0,
+        deleted: 0,
+        state: 'error',
+        percentage: 0
+      };
+    }
+  }
 }
 
 export default new SharePointService();

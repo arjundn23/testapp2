@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 
 const userSchema = mongoose.Schema(
   {
@@ -12,6 +12,20 @@ const userSchema = mongoose.Schema(
     resetPasswordToken: String,
     resetPasswordExpires: Date,
     loginToken: { type: String },
+    lastActiveAt: { type: Date, default: Date.now },
+    isOnline: { type: Boolean, default: false },
+    downloadedFiles: [
+      {
+        fileId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'File'
+        },
+        downloadedAt: {
+          type: Date,
+          default: Date.now
+        }
+      }
+    ]
   },
   { timestamps: true }
 );

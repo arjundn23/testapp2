@@ -17,7 +17,8 @@ import {
   fileUploadMiddleware,
   getFavoriteFiles,
   toggleFavorite,
-  trackDownload
+  trackDownload,
+  searchFiles
 } from '../controller/fileController.js';
 import { protect } from '../middleware/authMiddleware.js';
 import { testStreaming } from '../controller/fileController.js';
@@ -42,6 +43,7 @@ router.get('/category/:id', getFilesByCategory);
 router.get('/favourites', getFavoriteFiles);
 router.post('/:id/favorite', toggleFavorite);
 router.post('/:id/track-download', trackDownload);
+router.get('/search', searchFiles);
 
 router.route('/upload')
   .post(fileUploadMiddleware, uploadFile);
