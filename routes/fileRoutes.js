@@ -17,6 +17,8 @@ import {
   fileUploadMiddleware,
   getFavoriteFiles,
   toggleFavorite,
+  getPinnedFiles,
+  togglePin,
   trackDownload,
   searchFiles
 } from '../controller/fileController.js';
@@ -42,6 +44,8 @@ router.get('/type/:fileType', getFilesByType);
 router.get('/category/:id', getFilesByCategory);
 router.get('/favourites', getFavoriteFiles);
 router.post('/:id/favorite', toggleFavorite);
+router.get('/pinned', getPinnedFiles);
+router.post('/:id/pin', togglePin);
 router.post('/:id/track-download', trackDownload);
 router.get('/search', searchFiles);
 

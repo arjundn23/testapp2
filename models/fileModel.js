@@ -48,6 +48,10 @@ const fileSchema = mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
     }],
+    pinnedBy: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    }],
     downloads: [{
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'

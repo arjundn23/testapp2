@@ -948,6 +948,72 @@ export const toggleFavorite = async (req, res) => {
   }
 };
 
+// Toggle pin status
+export const togglePin = async (req, res) => {
+  try {
+    const file = await File.findById(req.params.id);
+    
+    if (!file) {
+      return res.status(404).json({ message: 'File not found' });
+    }
+
+    const userIndex = file.pinnedBy ? file.pinnedBy.indexOf(req.user._id) : -1;
+    
+    if (userIndex === -1) {
+      // Add to pinned
+      if (!file.pinnedBy) {
+        file.pinnedBy = [];
+      }
+      file.pinnedBy.push(req.user._id);
+      await file.save();
+      res.json({ message: 'File pinned successfully', isPinned: true });
+    } else {
+      // Remove from pinned
+      file.pinnedBy.pull(req.user._id);
+      await file.save();
+      res.json({ message: 'File unpinned successfully', isPinned: false });
+    }
+  } catch (error) {
+    console.error('Error toggling pin status:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Get pinned files
+export const getPinnedFiles = async (req, res) => {
+  try {
+    const files = await File.find({ pinnedBy: req.user._id })
+      .sort({ updatedAt: -1 })
+      .limit(10)
+      .populate('user', 'name email')
+      .populate('categories');
+
+    // Add download URLs to each file
+    const filesWithUrls = await Promise.all(files.map(async (file) => {
+      const fileObj = file.toObject();
+      try {
+        // Generate signed URLs for the file using sharePointService
+        const urls = await sharePointService.getFileUrls(
+          file.sharePointFileId,
+          file.sharePointThumbnailId
+        );
+        fileObj.publicDownloadUrl = urls.fileUrl;
+        fileObj.publicThumbnailDownloadUrl = urls.thumbnailUrl;
+      } catch (err) {
+        console.error(`Error generating URLs for file ${file._id}:`, err);
+        fileObj.publicDownloadUrl = '';
+        fileObj.publicThumbnailDownloadUrl = '';
+      }
+      return fileObj;
+    }));
+
+    res.json(filesWithUrls);
+  } catch (error) {
+    console.error('Error getting pinned files:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // Track file download
 export const trackDownload = async (req, res) => {
   try {
