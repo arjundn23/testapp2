@@ -1,13 +1,45 @@
 import Category from "../models/categoryModel.js";
+import User from "../models/userModel.js";
 
 // @desc    Get all categories
 // @route   GET /api/categories
 // @access  Private
 const getCategories = async (req, res) => {
   try {
+    // Get all categories sorted by creation date
     const categories = await Category.find({}).sort({ createdAt: -1 });
-    res.json(categories);
+    
+    // Check if user is admin
+    if (req.user.isAdmin) {
+      // Admins can see all categories
+      return res.json(categories);
+    }
+    
+    // For regular users, get their allowed categories
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    // If user has allowedCategories, filter the categories
+    if (user.allowedCategories && user.allowedCategories.length > 0) {
+      // Convert user's allowed categories to string IDs for comparison
+      const allowedCategoryIds = user.allowedCategories.map(cat => 
+        cat.toString()
+      );
+      
+      // Filter categories to only include those the user has access to
+      const filteredCategories = categories.filter(category => 
+        allowedCategoryIds.includes(category._id.toString())
+      );
+      
+      return res.json(filteredCategories);
+    } else {
+      // If user has no allowed categories, return an empty array
+      return res.json([]);
+    }
   } catch (error) {
+    console.error('Error fetching categories:', error);
     res.status(500).json({ message: error.message });
   }
 };

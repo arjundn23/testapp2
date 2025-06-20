@@ -190,26 +190,15 @@ const deactivateUser = async (req, res) => {
 const updateUser = async (req, res) => {
   try {
     const user = await User.findById(req.params.id);
-    console.log(req.body);
+
     if (user) {
       user.username = req.body.username || user.username;
       user.email = req.body.email || user.email;
-      
-      // Handle isAdmin field
-      if (req.body.isAdmin !== undefined) {
-        user.isAdmin = req.body.isAdmin;
-      } else if (req.body.role !== undefined) {
-        user.isAdmin = req.body.role === 'admin';
-      }
+      user.isAdmin = req.body.role === 'admin';
       
       // Update profile picture if provided
       if (req.body.profilePicture) {
         user.profilePicture = req.body.profilePicture;
-      }
-      
-      // Update allowed categories for non-admin users
-      if (!user.isAdmin && req.body.allowedCategories) {
-        user.allowedCategories = req.body.allowedCategories;
       }
 
       const updatedUser = await user.save();
@@ -220,7 +209,6 @@ const updateUser = async (req, res) => {
         email: updatedUser.email,
         isAdmin: updatedUser.isAdmin,
         profilePicture: updatedUser.profilePicture,
-        allowedCategories: updatedUser.allowedCategories
       });
     } else {
       res.status(404);
@@ -256,7 +244,7 @@ const getUserByToken = async (req, res) => {
 };
 
 const registerUserAndGenerateLink = async (req, res) => {
-  const { name, email, isAdmin, allowedCategories } = req.body;
+  const { name, email, isAdmin } = req.body;
   let p1 = btoa(name);
   let p2 = new Date().getTime();
   let p3 = btoa(p2);
@@ -266,35 +254,26 @@ const registerUserAndGenerateLink = async (req, res) => {
     return res.status(400).json({ message: "User already exists" });
   }
 
-  // Create user object with basic info
-  const userData = {
+  const user = await User.create({
     username: name,
     email: email,
     password: Math.random().toString(36).slice(-8),
     loginToken: token,
     isAdmin: isAdmin,
-  };
-  
-  // Add allowedCategories only for non-admin users
-  if (!isAdmin && allowedCategories && allowedCategories.length > 0) {
-    userData.allowedCategories = allowedCategories;
-  }
-
-  const user = await User.create(userData);
+  });
 
   if (user) {
     const registrationLink = `${process.env.FRONTEND_URL}/link?t=${token}`;
 
     // Send Email
-    const subject = "You’ve Been Invited to Join the Independents by Sodexo Digital Portal";
+    const subject = "Digital Portal Independents by Sodexo Scope";
 
     const html = `
         <p>Hi,</p>
-        <p>You’ve been invited to join the Independents by Sodexo Digital Portal - your central space for shared resources, documents, and team collaboration.</p>
-        <p>Click below to activate your account:</p>
-        <a href="${registrationLink}" target="_blank">Join the Portal</a>
-        <p>If this wasn’t intended for you, feel free to disregard this email.</p>
-        <p>Best regards,<br/>Independents by Sodexo Digital Portal Team</p>
+        <p>This is your joining link:</p>
+        <a href="${registrationLink}" target="_blank">Click here to join</a>
+        <p>Best regards,</p>
+        <p>Digital Portal Independents by Sodexo Team</p>
       `;
 
     await emailService.sendMail(user.email, subject, html);
@@ -330,14 +309,14 @@ const forgetPassword = async (req, res) => {
     const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
 
     // Send email
-    const subject = "Reset Your Independents by Sodexo Digital Portal Password";
+    const subject = "Password Reset Request";
     const html = `
-        <p>Hi ${user.username},</p>
-        <p>We received a request to reset the password for your Independents by Sodexo Digital Portal account.</p>
-        <p>To set a new password, please click the link below:</p>
-        <a href="${resetUrl}">Reset Your Password</a>
-        <p>If you didn’t request this, you can ignore this message.</p>
-        <p>Best regards,<br/>Independents by Sodexo Digital Portal Team</p>
+        <h2>Hello ${user.username},</h2>
+        <p>You requested a password reset for your Digital Portal Independents by Sodexo account.</p>
+        <p>Please click the following link to reset your password:</p>
+        <a href="${resetUrl}">${resetUrl}</a>
+        <p>If you didn't request this, please ignore this email.</p>
+        <p>Best regards,<br/>Digital Portal Independents by Sodexo Team</p>
       `;
 
     await emailService.sendMail(user.email, subject, html);

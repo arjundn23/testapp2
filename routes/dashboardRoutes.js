@@ -24,13 +24,13 @@ router.use(protect);
 // router.get('/top-downloads', admin, getTopDownloads);
 // router.get('/recent-uploads', admin, getRecentUploads);
 
-router.get('/recent-downloads', protect, getRecentDownloads);
-router.get('/active-users', protect, getActiveUsers);
-router.get('/download-stats', protect, getDownloadStats);
-router.get('/category-stats', protect, getCategoryStats);
-router.get('/top-downloads', protect, getTopDownloads);
-router.get('/recent-uploads', protect, getRecentUploads);
-router.get('/space-usage', protect, getSpaceUsage);
-router.post('/track-activity', protect, trackUserActivity);
+router.get('/recent-downloads', protect, admin, getRecentDownloads);
+router.get('/active-users', protect, admin, getActiveUsers);
+router.get('/download-stats', protect, admin, getDownloadStats);
+router.get('/category-stats', protect, admin, getCategoryStats);
+router.get('/top-downloads', protect, admin, getTopDownloads);
+router.get('/recent-uploads', protect, admin, getRecentUploads);
+router.get('/space-usage', protect, admin, getSpaceUsage);
+router.post('/track-activity', protect, admin, trackUserActivity);
 
 export default router;

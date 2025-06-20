@@ -23,7 +23,7 @@ import {
   trackDownload,
   searchFiles
 } from '../controller/fileController.js';
-import { protect } from '../middleware/authMiddleware.js';
+import { protect, admin } from '../middleware/authMiddleware.js';
 import { testStreaming } from '../controller/fileController.js';
 
 // Test route for streaming

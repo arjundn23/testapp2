@@ -137,12 +137,25 @@ export const getAllFiles = async (req, res) => {
     // Build query based on user role
     let query = {};
     if (!req.user.isAdmin) {
-      query = {
-        $or: [
-          { user: req.user._id },
-          { sharedWith: req.user._id }
-        ]
-      };
+      // Get the current user with their allowed categories
+      const currentUser = await User.findById(req.user._id).lean();
+      
+      if (currentUser.allowedCategories && currentUser.allowedCategories.length > 0) {
+        // User can see files that are either:
+        // 1. Shared with them directly
+        // 2. Belong to one of their allowed categories
+        query = {
+          $or: [
+            { sharedWith: req.user._id },
+            { categories: { $in: currentUser.allowedCategories } }
+          ]
+        };
+      } else {
+        // If user has no allowed categories, they can only see files shared with them
+        query = {
+          sharedWith: req.user._id
+        };
+      }
     }
 
     // Get total count for pagination
@@ -205,12 +218,25 @@ export const getRecentFiles = async (req, res) => {
     // Build query based on user role
     let query = {};
     if (!req.user.isAdmin) {
-      query = {
-        $or: [
-          { user: req.user._id },
-          { sharedWith: req.user._id }
-        ]
-      };
+      // Get the current user with their allowed categories
+      const currentUser = await User.findById(req.user._id).lean();
+      
+      if (currentUser.allowedCategories && currentUser.allowedCategories.length > 0) {
+        // User can see files that are either:
+        // 1. Shared with them directly
+        // 2. Belong to one of their allowed categories
+        query = {
+          $or: [
+            { sharedWith: req.user._id },
+            { categories: { $in: currentUser.allowedCategories } }
+          ]
+        };
+      } else {
+        // If user has no allowed categories, they can only see files shared with them
+        query = {
+          sharedWith: req.user._id
+        };
+      }
     }
 
     // Get total count for pagination
@@ -337,6 +363,31 @@ export const getDownloadedFiles = async (req, res) => {
     let query = {
       downloads: req.query.userId,
     };
+    
+    // Add category permission filtering for non-admin users
+    if (!req.user.isAdmin) {
+      // Get the current user with their allowed categories
+      const currentUser = await User.findById(req.user._id).lean();
+      
+      if (currentUser.allowedCategories && currentUser.allowedCategories.length > 0) {
+        // User can see downloaded files that are either:
+        // 1. Shared with them directly
+        // 2. Belong to one of their allowed categories
+        query = {
+          downloads: req.query.userId,
+          $or: [
+            { sharedWith: req.user._id },
+            { categories: { $in: currentUser.allowedCategories } }
+          ]
+        };
+      } else {
+        // If user has no allowed categories, they can only see files shared with them
+        query = {
+          downloads: req.query.userId,
+          sharedWith: req.user._id
+        };
+      }
+    }
 
     // Get total count for pagination
     const totalFiles = await File.countDocuments(query);
@@ -403,22 +454,26 @@ export const getFilesByType = async (req, res) => {
 
     // Use $in operator to match any of the fileTypes array elements
     let query = { 
-      fileTypes: { 
-        $in: [fileType.toLowerCase()]
-      } 
+      fileTypes: { $in: [new RegExp(fileType, 'i')] }
     };
 
-    // If not admin, only show own and shared files
+    // Add user-specific filters if not admin
     if (!req.user.isAdmin) {
-      query = {
-        fileTypes: { 
-          $in: [fileType.toLowerCase()]
-        },
-        $or: [
-          { user: req.user._id },
-          { sharedWith: req.user._id }
-        ]
-      };
+      // Get the current user with their allowed categories
+      const currentUser = await User.findById(req.user._id).lean();
+      
+      if (currentUser.allowedCategories && currentUser.allowedCategories.length > 0) {
+        // User can see files that are either:
+        // 1. Shared with them directly
+        // 2. Belong to one of their allowed categories
+        query.$or = [
+          { sharedWith: req.user._id },
+          { categories: { $in: currentUser.allowedCategories } }
+        ];
+      } else {
+        // If user has no allowed categories, they can only see files shared with them
+        query.sharedWith = req.user._id;
+      }
     }
 
     // Get total count for pagination
@@ -488,18 +543,28 @@ export const getFilesByCategory = async (req, res) => {
     if (!category) {
       return res.status(404).json({ message: 'Category not found' });
     }
+    
+    // If user is not admin, check if they have permission to access this category
+    if (!req.user.isAdmin) {
+      const currentUser = await User.findById(req.user._id).lean();
+      
+      // Check if user has permission for this category
+      const hasPermission = currentUser.allowedCategories && 
+        currentUser.allowedCategories.some(catId => 
+          catId.toString() === id.toString()
+        );
+      
+      if (!hasPermission) {
+        return res.status(403).json({ message: 'You do not have permission to access this page' });
+      }
+    }
 
     // Build query based on user role and category
     let query = { categories: id };
-    if (!req.user.isAdmin) {
-      query = {
-        categories: id,
-        $or: [
-          { user: req.user._id },
-          { sharedWith: req.user._id }
-        ]
-      };
-    }
+    
+    // For non-admin users, we already verified they have access to this category
+    // No need for additional filtering since we've already checked category permission
+    // This allows users to see all files in their allowed categories
 
     // Get total count for pagination
     const totalFiles = await File.countDocuments(query);
@@ -570,20 +635,36 @@ export const getFileById = async (req, res) => {
       res.status(404);
       throw new Error('File not found');
     }
-
-    // Check access permissions
-    const userId = req.user._id;
-    const isAdmin = req.user.isAdmin;
-
-    // If user is admin, allow access regardless of ownership
-    if (!isAdmin) {
-      // Only check ownership and sharing if not admin
-      const isOwner = file.user && file.user._id && file.user._id.toString() === userId.toString();
-      const isSharedWith = file.sharedWith && file.sharedWith.some(user => user._id.toString() === userId.toString());
-
-      if (!isOwner && !isSharedWith) {
-        res.status(403);
-        throw new Error('You do not have permission to access this file');
+    
+    // Get the current user with their allowed categories
+    const currentUser = await User.findById(req.user._id).populate('allowedCategories');
+    
+    // Check if user has permission to access this file
+    // Admins can access any file
+    if (!currentUser.isAdmin) {
+      // Check if user is specifically shared with this file
+      const isSharedWithUser = file.sharedWith.some(user => 
+        user._id.toString() === currentUser._id.toString()
+      );
+      
+      if (!isSharedWithUser) {
+        // Check if user has permission for any of the file's categories
+        const hasPermission = file.categories.some(fileCategory => {
+          // If user has no allowed categories, they can't access any files by category
+          if (!currentUser.allowedCategories || currentUser.allowedCategories.length === 0) {
+            return false;
+          }
+          
+          // Check if this file category is in user's allowed categories
+          return currentUser.allowedCategories.some(userCategory => 
+            userCategory._id.toString() === fileCategory._id.toString()
+          );
+        });
+        
+        if (!hasPermission) {
+          res.status(403);
+          throw new Error('File not found');
+        }
       }
     }
 
@@ -661,13 +742,16 @@ export const shareFile = async (req, res) => {
         );
 
         // Send notification email to existing user
-        const subject = 'File Shared With You';
+        const subject = 'A File has been shared with You';
         const html = `
-          <h2>File Shared</h2>
-          <p>A file has been shared with you on our platform.</p>
+          <p>Hi,</p>
+          <p>A file has been shared with you via the Independents by Sodexo Digital Portal.</p>
           <p>File Name: ${file.name}</p>
-          <p>View the file here: <a href="${process.env.FRONTEND_URL}/viewfile/${file._id}">${process.env.FRONTEND_URL}/viewfile/${file._id}</a></p>
-          <p>Direct download: <a href="${urls.fileUrl}">Download ${file.name}</a></p>
+          <p>You can:</p>
+          <p><a href="${process.env.FRONTEND_URL}/viewfile/${file._id}">View the file here</a></p>
+          <p><a href="${urls.fileUrl}">Download the file here</a></p>
+          <p>If you weren’t expecting this file, please check with your team lead.</p>
+          <p>Best regards,<br/>Independents by Sodexo Digital Portal Team</p>
         `;
         await emailService.sendMail(email, subject, html);
         return user._id;

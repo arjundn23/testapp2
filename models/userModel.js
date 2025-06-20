@@ -14,6 +14,10 @@ const userSchema = mongoose.Schema(
     loginToken: { type: String },
     lastActiveAt: { type: Date, default: Date.now },
     isOnline: { type: Boolean, default: false },
+    allowedCategories: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Category'
+    }],
     downloadedFiles: [
       {
         fileId: {
