@@ -15,7 +15,7 @@ class EmailService {
       });
     
       const mailOptions = {
-        from: `Resource Portal <${process.env.EMAIL}>`,
+        from: `Digital Portal Independents by Sodexo <${process.env.EMAIL}>`,
         to: email,
         subject: subject,
         html: html,

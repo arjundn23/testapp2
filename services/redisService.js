@@ -88,6 +88,11 @@ class RedisService {
   async getUserConnections(userId) {
     return await this.client.smembers(`user:${userId}:connections`);
   }
+  
+  // Invalidate file URLs cache
+  async invalidateFileUrlsCache(fileId) {
+    return await this.client.del(`file:${fileId}:urls`);
+  }
 }
 
 export default new RedisService();

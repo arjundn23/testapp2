@@ -15,6 +15,7 @@ import {
   removeAccess,
   generateSharingLink,
   fileUploadMiddleware,
+  thumbnailUploadMiddleware,
   getFavoriteFiles,
   toggleFavorite,
   getPinnedFiles,
@@ -55,7 +56,7 @@ router.route('/upload')
 // Make sure protect middleware is applied to these routes
 router.route('/:id')
   .get(getFileById)  
-  .put(updateFile)
+  .put(thumbnailUploadMiddleware, updateFile)
   .delete(deleteFile);
 
 router.get('/:id/urls', getFileUrls);

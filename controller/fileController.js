@@ -1,6 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import sharePointService from '../services/sharePointService.js';
+import redisService from '../services/redisService.js';
 import msalService from '../services/msalService.js';
 import File from '../models/fileModel.js';
 import Category from '../models/categoryModel.js';
@@ -790,10 +791,18 @@ export const deleteFile = async (req, res) => {
 };
 
 // Update file
+// Middleware for thumbnail upload only (for file updates)
+export const thumbnailUploadMiddleware = upload.fields([
+  { name: 'thumbnail', maxCount: 1 }
+]);
+
 export const updateFile = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description, categories } = req.body;
+    const thumbnail = req.files?.['thumbnail']?.[0];
+    const fileTypes = req.body.fileTypes ? JSON.parse(req.body.fileTypes) : null;
+    const categories = req.body.categories ? JSON.parse(req.body.categories) : null;
+    const { name, description } = req.body;
 
     // Check if id is a valid ObjectId
     if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -808,6 +817,7 @@ export const updateFile = async (req, res) => {
     // Update fields
     if (name) file.name = name;
     if (description) file.description = description;
+    if (fileTypes) file.fileTypes = fileTypes;
     if (categories) {
       // Validate categories
       const validCategories = await Category.find({ _id: { $in: categories } });
@@ -817,9 +827,63 @@ export const updateFile = async (req, res) => {
       file.categories = categories;
     }
 
-    const updatedFile = await file.save();
+    // Handle thumbnail update if provided
+    if (thumbnail) {
+      try {
+        // Generate unique filename for thumbnail
+        const timestamp = Date.now();
+        const thumbnailExt = thumbnail.originalname.split('.').pop();
+        const uniqueThumbnailName = `t${timestamp}_thumbnail.${thumbnailExt}`;
+        
+        // Get site and drive information
+        const { siteId, driveId } = await sharePointService.getSiteAndDriveInfo();
+        
+        // Upload thumbnail to SharePoint
+        const thumbnailUploadResult = await sharePointService.uploadFile(
+          siteId,
+          driveId,
+          { ...thumbnail, originalname: uniqueThumbnailName }
+        );
+        
+        // Update file record with new thumbnail info
+        file.thumbnailName = uniqueThumbnailName;
+        file.sharePointThumbnailId = thumbnailUploadResult.id;
+        file.thumbnailUrl = thumbnailUploadResult.webUrl;
+        
+        // Invalidate Redis cache for this file's URLs
+        await redisService.invalidateFileUrlsCache(file.sharePointFileId);
+        if (file.sharePointThumbnailId) {
+          await redisService.invalidateFileUrlsCache(file.sharePointThumbnailId);
+        }
+      } catch (thumbnailError) {
+        console.error('Error uploading thumbnail:', thumbnailError);
+        return res.status(500).json({ 
+          message: 'Error uploading thumbnail',
+          error: thumbnailError.message 
+        });
+      }
+    }
 
-    res.json(updatedFile);
+    const updatedFile = await file.save();
+    
+    // Make sure cache is invalidated before generating fresh URLs
+    await redisService.invalidateFileUrlsCache(file.sharePointFileId);
+    if (file.sharePointThumbnailId) {
+      await redisService.invalidateFileUrlsCache(file.sharePointThumbnailId);
+    }
+    
+    // Generate fresh download URLs to avoid caching issues
+    const urls = await sharePointService.getFileUrls(
+      file.sharePointFileId,
+      file.sharePointThumbnailId
+    );
+    
+    // Return the updated file with fresh URLs
+    res.json({
+      ...updatedFile.toObject(),
+      publicDownloadUrl: urls.fileUrl,
+      publicThumbnailDownloadUrl: urls.thumbnailUrl
+    });
   } catch (error) {
     console.error('Error updating file:', error);
     res.status(500).json({ 

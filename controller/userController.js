@@ -266,14 +266,14 @@ const registerUserAndGenerateLink = async (req, res) => {
     const registrationLink = `${process.env.FRONTEND_URL}/link?t=${token}`;
 
     // Send Email
-    const subject = "Resource Portal Scope";
+    const subject = "Digital Portal Independents by Sodexo Scope";
 
     const html = `
         <p>Hi,</p>
         <p>This is your joining link:</p>
         <a href="${registrationLink}" target="_blank">Click here to join</a>
         <p>Best regards,</p>
-        <p>Resource Portal Team</p>
+        <p>Digital Portal Independents by Sodexo Team</p>
       `;
 
     await emailService.sendMail(user.email, subject, html);
@@ -312,11 +312,11 @@ const forgetPassword = async (req, res) => {
     const subject = "Password Reset Request";
     const html = `
         <h2>Hello ${user.username},</h2>
-        <p>You requested a password reset for your Resource Portal account.</p>
+        <p>You requested a password reset for your Digital Portal Independents by Sodexo account.</p>
         <p>Please click the following link to reset your password:</p>
         <a href="${resetUrl}">${resetUrl}</a>
         <p>If you didn't request this, please ignore this email.</p>
-        <p>Best regards,<br/>Resource Portal Team</p>
+        <p>Best regards,<br/>Digital Portal Independents by Sodexo Team</p>
       `;
 
     await emailService.sendMail(user.email, subject, html);
