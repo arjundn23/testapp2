@@ -1224,23 +1224,45 @@ export const searchFiles = async (req, res) => {
 
     let query = {};
     if (!req.user.isAdmin) {
-      query = {
-        $or: [
-          { user: req.user._id },
-          { sharedWith: req.user._id }
-        ]
-      };
+      // Get the current user with their allowed categories
+      const currentUser = await User.findById(req.user._id).lean();
+      
+      if (currentUser.allowedCategories && currentUser.allowedCategories.length > 0) {
+        // User can see files that are either:
+        // 1. Shared with them directly
+        // 2. Belong to one of their allowed categories
+        query.$or = [
+          { sharedWith: req.user._id },
+          { categories: { $in: currentUser.allowedCategories } }
+        ];
+      } else {
+        // If user has no allowed categories, they can only see files shared with them
+        query.sharedWith = req.user._id;
+      }
     }
 
     // Add search term to query
     if (searchTerm) {
-      query = {
-        ...query,
-        $or: [
+      // If we already have permission filters with $or
+      if (query.$or) {
+        // We need to use $and to combine the existing $or with the search $or
+        query = {
+          $and: [
+            { $or: query.$or },  // Permission filters
+            { $or: [
+                { name: { $regex: searchTerm, $options: 'i' } },
+                { description: { $regex: searchTerm, $options: 'i' } }
+              ]
+            }
+          ]
+        };
+      } else {
+        // If no existing $or, we can simply add the search $or
+        query.$or = [
           { name: { $regex: searchTerm, $options: 'i' } },
           { description: { $regex: searchTerm, $options: 'i' } }
-        ]
-      };
+        ];
+      }
     }
 
     const files = await File.find(query)
