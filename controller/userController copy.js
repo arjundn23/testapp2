@@ -272,7 +272,7 @@ const registerUserAndGenerateLink = async (req, res) => {
         <p>Hi,</p>
         <p>This is your joining link:</p>
         <a href="${registrationLink}" target="_blank">Click here to join</a>
-        <p>Best regards,</p>
+        <p>Best Regards,</p>
         <p>Digital Portal Independents by Sodexo Team</p>
       `;
 
@@ -316,7 +316,7 @@ const forgetPassword = async (req, res) => {
         <p>Please click the following link to reset your password:</p>
         <a href="${resetUrl}">${resetUrl}</a>
         <p>If you didn't request this, please ignore this email.</p>
-        <p>Best regards,<br/>Digital Portal Independents by Sodexo Team</p>
+        <p>Best Regards,<br/>Digital Portal Independents by Sodexo Team</p>
       `;
 
     await emailService.sendMail(user.email, subject, html);

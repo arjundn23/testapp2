@@ -288,14 +288,24 @@ const registerUserAndGenerateLink = async (req, res) => {
     // Send Email
     const subject = "You’ve Been Invited to Join the Independents by Sodexo Digital Portal";
 
-    const html = `
-        <p>Hi,</p>
-        <p>You’ve been invited to join the Independents by Sodexo Digital Portal - your central space for shared resources, documents, and team collaboration.</p>
-        <p>Click below to activate your account:</p>
-        <a href="${registrationLink}" target="_blank">Join the Portal</a>
-        <p>If this wasn’t intended for you, feel free to disregard this email.</p>
-        <p>Best regards,<br/>Independents by Sodexo Digital Portal Team</p>
-      `;
+    const logoUrl = "https://res.cloudinary.com/dhnnpddod/image/upload/v1750789107/logo1-CNx-Aou2_sxtii8.png";
+const html = `
+  <div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #eee;border-radius:8px;overflow:hidden;font-family:sans-serif;">
+    <div style="background:#f7f7f7;padding:24px 0;text-align:center;">
+      <img src="${logoUrl}" alt="Portal Logo" style="height:60px;max-width:90%;margin:auto;display:block;" />
+    </div>
+    <div style="padding:32px 24px 24px 24px;">
+      <p style="font-size:18px;margin-bottom:10px;color:#222;">Hi,</p>
+      <p style="font-size:16px;color:#333;">You’ve been invited to join the <b>Independents by Sodexo Digital Portal</b> – your central space for shared resources, documents, and team collaboration.</p>
+<p style="font-size:15px;color:#333;margin-bottom:8px;">Click below to activate your account:</p>
+      <div style="background:#f6f6fa;padding:16px 12px;margin:18px 0 14px 0;border-radius:6px;font-size:15px;text-align:center;">
+        <a href="${registrationLink}" target="_blank" style="display:inline-block;padding:10px 18px;background:#f58220;color:#fff;text-decoration:none;border-radius:4px;font-weight:600;font-size:15px;">Join the Portal</a>
+      </div>
+      <p style="font-size:13px;color:#666;margin:14px 0 0 0;">If this wasn’t intended for you, feel free to disregard this email.</p>
+      <p style="font-size:14px;color:#888;margin-top:28px;">Best Regards,<br/>Independents by Sodexo Digital Portal Team</p>
+    </div>
+  </div>
+`;
 
     await emailService.sendMail(user.email, subject, html);
 
@@ -331,14 +341,24 @@ const forgetPassword = async (req, res) => {
 
     // Send email
     const subject = "Reset Your Independents by Sodexo Digital Portal Password";
-    const html = `
-        <p>Hi ${user.username},</p>
-        <p>We received a request to reset the password for your Independents by Sodexo Digital Portal account.</p>
-        <p>To set a new password, please click the link below:</p>
-        <a href="${resetUrl}">Reset Your Password</a>
-        <p>If you didn’t request this, you can ignore this message.</p>
-        <p>Best regards,<br/>Independents by Sodexo Digital Portal Team</p>
-      `;
+    const logoUrl = "https://res.cloudinary.com/dhnnpddod/image/upload/v1750789107/logo1-CNx-Aou2_sxtii8.png";
+const html = `
+  <div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #eee;border-radius:8px;overflow:hidden;font-family:sans-serif;">
+    <div style="background:#f7f7f7;padding:24px 0;text-align:center;">
+      <img src="${logoUrl}" alt="Portal Logo" style="height:60px;max-width:90%;margin:auto;display:block;" />
+    </div>
+    <div style="padding:32px 24px 24px 24px;">
+      <p style="font-size:18px;margin-bottom:10px;color:#222;">Hi ${user.username},</p>
+      <p style="font-size:16px;color:#333;">We received a request to reset the password for your <b>Independents by Sodexo Digital Portal</b> account.</p>
+<p style="font-size:15px;color:#333;margin-bottom:8px;">To set a new password, please click the link below:</p>
+      <div style="background:#f6f6fa;padding:16px 12px;margin:18px 0 14px 0;border-radius:6px;font-size:15px;text-align:center;">
+        <a href="${resetUrl}" style="display:inline-block;padding:10px 18px;background:#0079c1;color:#fff;text-decoration:none;border-radius:4px;font-weight:600;font-size:15px;">Reset Your Password</a>
+      </div>
+      <p style="font-size:13px;color:#666;margin:14px 0 0 0;">If you didn’t request this, you can ignore this message.</p>
+      <p style="font-size:14px;color:#888;margin-top:28px;">Best Regards,<br/>Independents by Sodexo Digital Portal Team</p>
+    </div>
+  </div>
+`;
 
     await emailService.sendMail(user.email, subject, html);
     res.json({ message: "Password reset email sent" });

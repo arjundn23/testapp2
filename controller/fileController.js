@@ -743,15 +743,26 @@ export const shareFile = async (req, res) => {
 
         // Send notification email to existing user
         const subject = 'A File has been shared with You';
+        // const logoUrl = `${process.env.FRONTEND_URL}/assets/logo1-CNx-Aou2.svg`;
+        const logoUrl = "https://res.cloudinary.com/dhnnpddod/image/upload/v1750789107/logo1-CNx-Aou2_sxtii8.png";
         const html = `
-          <p>Hi,</p>
-          <p>A file has been shared with you via the Independents by Sodexo Digital Portal.</p>
-          <p>File Name: ${file.name}</p>
-          <p>You can:</p>
-          <p><a href="${process.env.FRONTEND_URL}/viewfile/${file._id}">View the file here</a></p>
-          <p><a href="${urls.fileUrl}">Download the file here</a></p>
-          <p>If you weren’t expecting this file, please check with your team lead.</p>
-          <p>Best regards,<br/>Independents by Sodexo Digital Portal Team</p>
+          <div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #eee;border-radius:8px;overflow:hidden;font-family:sans-serif;">
+            <div style="background:#f7f7f7;padding:24px 0;text-align:center;">
+              <img src="${logoUrl}" alt="Portal Logo" style="height:60px;max-width:90%;margin:auto;display:block;" />
+            </div>
+            <div style="padding:32px 24px 24px 24px;">
+              <p style="font-size:18px;margin-bottom:10px;color:#222;">Hi,</p>
+              <p style="font-size:16px;color:#333;">A file has been shared with you via the <b>Independents by Sodexo Digital Portal</b>.</p>
+              <div style="background:#f6f6fa;padding:16px 12px;margin:18px 0 14px 0;border-radius:6px;font-size:15px;">
+                <strong>File Name:</strong> ${file.name}
+              </div>
+              <p style="font-size:15px;margin-bottom:8px;">You can:</p>
+              <a href="${process.env.FRONTEND_URL}/viewfile/${file._id}" style="display:inline-block;margin-bottom:10px;padding:10px 18px;background:#f58220;color:#fff;text-decoration:none;border-radius:4px;font-weight:600;font-size:15px;">View the file</a><br/>
+              <a href="${urls.fileUrl}" style="display:inline-block;margin-bottom:18px;padding:10px 18px;background:#0079c1;color:#fff;text-decoration:none;border-radius:4px;font-weight:600;font-size:15px;">Download the file</a>
+              <p style="font-size:13px;color:#666;margin:14px 0 0 0;">If you weren’t expecting this file, please check with your team lead.</p>
+              <p style="font-size:14px;color:#888;margin-top:28px;">Best Regards,<br/>Independents by Sodexo Digital Portal Team</p>
+            </div>
+          </div>
         `;
         await emailService.sendMail(email, subject, html);
         return user._id;
