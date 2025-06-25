@@ -16,7 +16,6 @@ import {
   resetPassword,
   searchUsers,
 } from "../controller/userController.js";
-import { sendSupportEmail } from "../controller/supportController.js";
 import { protect, admin } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
@@ -40,8 +39,5 @@ router
   .delete(protect,admin,deleteUser);
 router.post("/generate-link", protect, admin, registerUserAndGenerateLink);
 router.route("/token-user/:token").get(getUserByToken);
-
-// Support route
-router.post("/support", protect, sendSupportEmail);
 
 export default router;
