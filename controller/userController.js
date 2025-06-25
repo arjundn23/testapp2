@@ -6,39 +6,18 @@ import emailService from "../services/emailService.js";
 import UserActivity from '../models/userActivityModel.js';
 
 const authUser = async (req, res) => {
-  const { email, password, rememberMe, otpCode, resendOtp } = req.body;
-  // Get session ID from cookies if it exists
-  const sessionIdCookie = req.cookies.sessionId;
+  const { email, password, rememberMe } = req.body;
 
   const user = await User.findOne({ email });
   if (user && !user.isActivated)
     return res.status(401).json({ message: "Account is deactivated" });
-    
-  // Check if session token is missing or doesn't match what's in the database
-  // This indicates the cookies were cleared manually
-  const sessionCleared = !sessionIdCookie || (user && sessionIdCookie !== user.sessionToken);
-    
-  // Handle OTP verification separately from password verification
-  if (otpCode) {
-    // User is submitting OTP code
-    if (user.otpCode !== otpCode) {
-      return res.status(401).json({ message: "Invalid OTP code" });
-    }
-    
-    if (user.otpExpires < new Date()) {
-      return res.status(401).json({ message: "OTP code has expired" });
-    }
-    
-    // OTP is valid, update user status
+  if (user && (await user.matchPassword(password))) {
+    // Update user status
     await User.findByIdAndUpdate(user._id, {
-      isOtpVerified: true,
-      firstLogin: false,
-      otpCode: null,
-      otpExpires: null,
       lastActiveAt: new Date(),
       isOnline: true
     });
-    
+
     // Track login activity
     await UserActivity.create({
       user: user._id,
@@ -51,169 +30,6 @@ const authUser = async (req, res) => {
     });
 
     res.cookie("jwt", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV !== "development",
-      sameSite: "strict",
-      maxAge: rememberMe ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000, // 30 days or 1 day
-    });
-
-    return res.json({
-      _id: user._id,
-      name: user.username,
-      email: user.email,
-      isAdmin: user.isAdmin
-    });
-  } else if (resendOtp && user) {
-    // Handle resend OTP request
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit code
-    const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-    
-    await User.findByIdAndUpdate(user._id, {
-      otpCode,
-      otpExpires,
-      isOtpVerified: false
-    });
-    
-    // Send OTP email
-
-    const logoUrl = "https://res.cloudinary.com/dhnnpddod/image/upload/v1750789107/logo1-CNx-Aou2_sxtii8.png";
-    
-    const html = `
-    <div style="max-width: 600px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif; border: 1px solid #e0e0e0; border-radius: 5px;">
-      <div style="text-align: center; margin-bottom: 20px;">
-        <img src="${logoUrl}" alt="Company Logo" style="max-width: 200px;">
-      </div>
-      <div style="background-color: #f9f9f9; padding: 20px; border-radius: 5px;">
-        <h2 style="color: #333; margin-bottom: 20px;">One-Time Password (OTP) Verification</h2>
-        <p style="color: #555; margin-bottom: 15px;">Hello ${user.username},</p>
-        <p style="color: #555; margin-bottom: 15px;">Your one-time password (OTP) for login verification is:</p>
-        <div style="background-color: #e8f0fe; padding: 15px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px; margin: 20px 0; border-radius: 5px;">
-          ${otpCode}
-        </div>
-        <p style="color: #555; margin-bottom: 15px;">This code will expire in 10 minutes.</p>
-        <p style="color: #555; margin-bottom: 15px;">If you did not request this code, please ignore this email.</p>
-      </div>
-      <div style="margin-top: 20px; text-align: center; color: #777; font-size: 12px;">
-        <p>This is an automated message, please do not reply to this email.</p>
-      </div>
-    </div>
-    `;
-    
-    await emailService.sendMail(user.email, "Your Login Verification Code", html);
-    
-    return res.status(200).json({ 
-      message: "New OTP code sent successfully", 
-      requireOtp: true,
-      email: user.email
-    });
-  }
-  
-  // Normal login with password
-  if (user && (await user.matchPassword(password))) {
-    // Check if OTP verification is needed
-    if (otpCode) {
-      // User is submitting OTP code
-      if (user.otpCode !== otpCode) {
-        return res.status(401).json({ message: "Invalid OTP code" });
-      }
-      
-      if (user.otpExpires < new Date()) {
-        return res.status(401).json({ message: "OTP code has expired" });
-      }
-      
-      // OTP is valid, update user status
-      await User.findByIdAndUpdate(user._id, {
-        isOtpVerified: true,
-        firstLogin: false,
-        otpCode: null,
-        otpExpires: null,
-        lastActiveAt: new Date(),
-        isOnline: true
-      });
-    } else {
-      // Check if OTP verification is needed
-      // Require OTP for first login, when isOtpVerified is false, or when session cookies were cleared
-      if (user.firstLogin || !user.isOtpVerified || sessionCleared) {
-        // Generate and send OTP
-        const otpCode = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit code
-        const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-        
-        await User.findByIdAndUpdate(user._id, {
-          otpCode,
-          otpExpires,
-          isOtpVerified: false
-        });
-
-        // Send OTP email
-        const logoUrl = "https://res.cloudinary.com/dhnnpddod/image/upload/v1750789107/logo1-CNx-Aou2_sxtii8.png";
-        
-        const html = `
-        <div style="max-width: 600px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif; border: 1px solid #e0e0e0; border-radius: 5px;">
-          <div style="text-align: center; margin-bottom: 20px;">
-            <img src="${logoUrl}" alt="Company Logo" style="max-width: 200px;">
-          </div>
-          <div style="background-color: #f9f9f9; padding: 20px; border-radius: 5px;">
-            <h2 style="color: #333; margin-bottom: 20px;">One-Time Password (OTP) Verification</h2>
-            <p style="color: #555; margin-bottom: 15px;">Hello ${user.username},</p>
-            <p style="color: #555; margin-bottom: 15px;">Your one-time password (OTP) for login verification is:</p>
-            <div style="background-color: #e8f0fe; padding: 15px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px; margin: 20px 0; border-radius: 5px;">
-              ${otpCode}
-            </div>
-            <p style="color: #555; margin-bottom: 15px;">This code will expire in 10 minutes.</p>
-            <p style="color: #555; margin-bottom: 15px;">If you did not request this code, please ignore this email.</p>
-          </div>
-          <div style="margin-top: 20px; text-align: center; color: #777; font-size: 12px;">
-            <p>This is an automated message, please do not reply to this email.</p>
-          </div>
-        </div>
-        `;
-        
-        await emailService.sendMail(user.email, "Your Login Verification Code", html);
-        
-        return res.status(200).json({ 
-          message: "OTP verification required", 
-          requireOtp: true,
-          email: user.email
-        });
-      }
-      
-      // Update user status for normal login
-      await User.findByIdAndUpdate(user._id, {
-        lastActiveAt: new Date(),
-        isOnline: true
-      });
-    }
-
-    // Track login activity
-    await UserActivity.create({
-      user: user._id,
-      activityType: 'login',
-      timestamp: new Date()
-    });
-
-    // Generate a unique session token to detect cleared cookies
-    const sessionToken = Math.random().toString(36).substring(2, 15) + 
-                        Math.random().toString(36).substring(2, 15);
-    
-    // Store the session token in the database
-    await User.findByIdAndUpdate(user._id, {
-      sessionToken: sessionToken
-    });
-
-    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
-      expiresIn: rememberMe ? "30d" : "1d",
-    });
-
-    // Set the JWT token cookie
-    res.cookie("jwt", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV !== "development",
-      sameSite: "strict",
-      maxAge: rememberMe ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000, // 30 days or 1 day
-    });
-    
-    // Set a separate session token cookie to detect cleared cookies
-    res.cookie("sessionId", sessionToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV !== "development",
       sameSite: "strict",
@@ -232,30 +48,27 @@ const authUser = async (req, res) => {
 };
 
 const logoutUser = async (req, res) => {
-  // The protect middleware ensures req.user exists
-  // Update user status and reset OTP verification
-  await User.findByIdAndUpdate(req.user._id, {
-    isOnline: false,
-    isOtpVerified: false // Reset OTP verification flag when logging out
-  });
+  if (req.user) {
+    // Update user status
+    await User.findByIdAndUpdate(req.user._id, {
+      isOnline: false
+    });
 
-  // Track logout activity
-  await UserActivity.create({
-    user: req.user._id,
-    activityType: 'logout',
-    timestamp: new Date()
-  });
+    // Track logout activity
+    await UserActivity.create({
+      user: req.user._id,
+      activityType: 'logout',
+      timestamp: new Date()
+    });
+  }
 
-  // Clear JWT cookie
   res.cookie("jwt", "", {
     httpOnly: true,
+    secure: process.env.NODE_ENV !== "development",
+    sameSite: "strict",
     expires: new Date(0),
-  });
-  
-  // Clear session token cookie
-  res.cookie("sessionId", "", {
-    httpOnly: true,
-    expires: new Date(0),
+    maxAge: 0,
+    path: "/"
   });
 
   res.status(200).json({ message: "Logged out successfully" });

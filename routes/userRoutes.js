@@ -23,7 +23,7 @@ const router = express.Router();
 router.route("/").get(protect,admin,getUsers);
 router.route("/token-profile").put(updateTokenUserProfile);
 router.get("/search", protect, searchUsers);
-router.post("/logout", protect, logoutUser);
+router.post("/logout", logoutUser);
 router.post("/auth", authUser);
 router.post("/forget-password", forgetPassword);
 router.post("/reset-password", resetPassword);
