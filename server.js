@@ -9,6 +9,7 @@ import fileRoutes from './routes/fileRoutes.js';
 import categoryRoutes from './routes/categoryRoutes.js';
 import authRoutes from './routes/authRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
+import supportRoutes from './routes/supportRoutes.js';
 import websocketService from './services/websocketService.js';
 import { createServer } from 'http';
 
@@ -38,6 +39,7 @@ app.use('/api/files', fileRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use("/api/auth", authRoutes);
+app.use('/api/support', supportRoutes);
 
 app.get('/', (req, res) => res.send('Server is ready'));
 

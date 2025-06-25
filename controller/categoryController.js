@@ -6,8 +6,8 @@ import User from "../models/userModel.js";
 // @access  Private
 const getCategories = async (req, res) => {
   try {
-    // Get all categories sorted by creation date
-    const categories = await Category.find({}).sort({ createdAt: -1 });
+    // Get all categories sorted by order field (or creation date as fallback)
+    const categories = await Category.find({}).sort({ order: 1, createdAt: -1 });
     
     // Check if user is admin
     if (req.user.isAdmin) {
@@ -107,4 +107,37 @@ const deleteCategory = async (req, res) => {
   }
 };
 
-export { getCategories, createCategory, updateCategory, deleteCategory };
+// @desc    Update category order
+// @route   PUT /api/categories/reorder
+// @access  Private/Admin
+const updateCategoryOrder = async (req, res) => {
+  try {
+    const { orderedCategories } = req.body;
+    
+    // Validate input
+    if (!orderedCategories || !Array.isArray(orderedCategories)) {
+      return res.status(400).json({ message: "Invalid data format. Expected orderedCategories array." });
+    }
+    
+    // Update each category with its new order
+    const updatePromises = orderedCategories.map((item, index) => {
+      return Category.findByIdAndUpdate(
+        item.id,
+        { order: index },
+        { new: true }
+      );
+    });
+    
+    // Wait for all updates to complete
+    await Promise.all(updatePromises);
+    
+    // Return the updated categories
+    const updatedCategories = await Category.find({}).sort({ order: 1, createdAt: -1 });
+    res.json(updatedCategories);
+  } catch (error) {
+    console.error('Error updating category order:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export { getCategories, createCategory, updateCategory, deleteCategory, updateCategoryOrder };
