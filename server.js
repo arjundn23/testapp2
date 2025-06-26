@@ -9,6 +9,7 @@ import fileRoutes from './routes/fileRoutes.js';
 import categoryRoutes from './routes/categoryRoutes.js';
 import authRoutes from './routes/authRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
+import supportRoutes from './routes/supportRoutes.js';
 import websocketService from './services/websocketService.js';
 import { createServer } from 'http';
 
@@ -27,6 +28,25 @@ app.use(express.urlencoded({ extended: true, limit:'2048mb' }));
 app.timeout = 3600000; // 1 hour
 app.use(cookieParser());
 
+app.use((req, res, next) => {
+  res.setHeader(
+    'Strict-Transport-Security',
+    'max-age=31536000; includeSubDomains; preload'
+  );
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; script-src 'self'; object-src 'none'; upgrade-insecure-requests"
+  );
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN'); // or 'DENY' if you prefer
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader(
+    'Permissions-Policy',
+    'geolocation=(), microphone=()'
+  );
+  next();
+});
+
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5173',
   credentials: true,
@@ -38,6 +58,7 @@ app.use('/api/files', fileRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use("/api/auth", authRoutes);
+app.use('/api/support', supportRoutes);
 
 app.get('/', (req, res) => res.send('Server is ready'));
 
