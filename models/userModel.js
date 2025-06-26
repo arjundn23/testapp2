@@ -14,6 +14,11 @@ const userSchema = mongoose.Schema(
     loginToken: { type: String },
     lastActiveAt: { type: Date, default: Date.now },
     isOnline: { type: Boolean, default: false },
+    otpCode: { type: String },
+    otpExpires: { type: Date },
+    isOtpVerified: { type: Boolean, default: false },
+    firstLogin: { type: Boolean, default: true },
+    sessionToken: { type: String },
     allowedCategories: [{
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Category'
